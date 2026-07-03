@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>宇宙 — 本物の星空</title>
+<style>
+  html, body { margin:0; padding:0; background:#000; overflow:hidden; height:100%;
+    -webkit-user-select:none; user-select:none; overscroll-behavior:none;
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP",sans-serif; }
+  #cv { display:block; width:100vw; height:100vh; touch-action:none; }
+
+  /* タイトル */
+  #splash { position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; pointer-events:none;
+    transition:opacity 2.5s ease; z-index:10; }
+  #splash .t1 { color:#dfe8ff; font-size:min(13vw,86px); letter-spacing:0.6em;
+    margin-left:0.6em; font-weight:200; text-shadow:0 0 30px rgba(150,180,255,.55); }
+  #splash .t2 { color:#8fa3cc; font-size:min(3.6vw,15px); letter-spacing:0.35em;
+    margin-top:18px; font-weight:300; }
+
+  /* 操作ボタン */
+  #ui { position:fixed; right:calc(10px + env(safe-area-inset-right)); top:50%;
+    transform:translateY(-50%); display:flex; flex-direction:column; gap:14px;
+    z-index:20; transition:opacity 1.2s ease; }
+  #ui button { width:52px; height:52px; border-radius:50%;
+    border:1px solid rgba(160,185,255,.35); background:rgba(10,16,38,.45);
+    color:#c8d6ff; font-size:13px; line-height:1.15; cursor:pointer;
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+    display:flex; align-items:center; justify-content:center; flex-direction:column; }
+  #ui button .ic { font-size:19px; }
+  #ui button.on { background:rgba(70,110,255,.4); border-color:rgba(180,200,255,.8); color:#fff; }
+
+  /* 誕生・消滅カウンター */
+  #stats { position:fixed; left:calc(12px + env(safe-area-inset-left));
+    bottom:calc(10px + env(safe-area-inset-bottom)); color:#7d8fbf; font-size:12px;
+    letter-spacing:0.12em; z-index:20; transition:opacity 1.2s ease; text-shadow:0 0 6px #000; }
+  #stats b { color:#c9d7ff; font-weight:500; }
+
+  /* 星の情報カード */
+  #card { position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(46px + env(safe-area-inset-bottom));
+    background:rgba(8,12,30,.72); border:1px solid rgba(150,175,255,.3);
+    border-radius:14px; padding:13px 22px; text-align:center; z-index:30;
+    opacity:0; pointer-events:none; transition:opacity .5s ease;
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); max-width:82vw; }
+  #card.show { opacity:1; }
+  #card .n  { font-size:21px; letter-spacing:0.15em; margin-bottom:3px; }
+  #card .s  { color:#93a5d6; font-size:12px; letter-spacing:0.1em; }
+  #card .d  { color:#c3cfF2; color:#c3cff2; font-size:13px; margin-top:7px; }
+  #card .y  { color:#ffd9a0; font-size:12.5px; margin-top:5px; letter-spacing:0.06em; }
+
+  /* 星座検索パネル */
+  #panel { position:fixed; right:0; top:0; bottom:0; width:min(320px,78vw);
+    background:rgba(6,10,26,.92); border-left:1px solid rgba(150,175,255,.25); z-index:40;
+    transform:translateX(105%); transition:transform .35s ease; display:flex; flex-direction:column;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #panel.open { transform:none; }
+  #panelHead { color:#c8d6ff; padding:14px 16px; font-size:15px; letter-spacing:.15em;
+    display:flex; justify-content:space-between; align-items:center; }
+  #panelClose { cursor:pointer; padding:2px 8px; font-size:17px; }
+  #panelList { overflow-y:auto; padding:0 10px 24px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  #panelList button { background:rgba(30,40,80,.5); color:#c8d6ff; border:1px solid rgba(150,175,255,.2);
+    border-radius:8px; padding:9px 4px; font-size:12.5px; cursor:pointer; }
+
+  /* 時代表示（歴史モード） */
+  #era { position:fixed; left:50%; transform:translateX(-50%);
+    top:calc(20px + env(safe-area-inset-top)); z-index:25; opacity:0;
+    transition:opacity 1.2s ease; pointer-events:none; text-align:center;
+    text-shadow:0 0 12px #000; }
+  #era.show { opacity:1; }
+  #era .t { color:#dfe6fa; font-size:min(4.6vw,19px); letter-spacing:.2em; }
+  #era .y { color:#8fa3cc; font-size:min(3.2vw,12.5px); letter-spacing:.3em; margin-top:5px; }
+
+  /* 現在地表示 */
+  #pos { position:fixed; right:calc(12px + env(safe-area-inset-right));
+    bottom:calc(10px + env(safe-area-inset-bottom)); color:#7d8fbf; font-size:11.5px;
+    letter-spacing:.08em; z-index:20; transition:opacity 1.2s ease; text-shadow:0 0 6px #000; text-align:right; }
+
+  #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    color:#ffb0a0; font-size:15px; z-index:99; text-align:center; padding:0 30px; }
+  .fade { opacity:0 !important; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="splash">
+  <div class="t1">宇 宙</div>
+  <div class="t2">実在の星 8,920個の宇宙を泳ぐ ─ 位置も色も明るさも本物</div>
+</div>
+
+<div id="ui">
+  <button id="bFull"><span class="ic">⛶</span><span>全画面</span></button>
+  <button id="bCons"><span class="ic">✦</span><span>星座</span></button>
+  <button id="bFind"><span class="ic">🔍</span><span>さがす</span></button>
+  <button id="bHome"><span class="ic">🌍</span><span>地球</span></button>
+  <button id="bHist"><span class="ic">⏳</span><span>歴史</span></button>
+  <button id="bSnd"><span class="ic">♪</span><span>おと</span></button>
+  <button id="bBH"><span class="ic">●</span><span>BH</span></button>
+</div>
+
+<div id="era"><div class="t"></div><div class="y"></div></div>
+
+<div id="panel">
+  <div id="panelHead">星座をさがす<span id="panelClose">✕</span></div>
+  <div id="panelList"></div>
+</div>
+
+<div id="stats" style="display:none">⏩ 超早回しの時間 ─ 誕生 <b id="nBorn">0</b>　消滅 <b id="nGone">0</b></div>
+<div id="pos"></div>
+<div id="card"></div>
+<div id="err"></div>
+
+<script src="stars.js"></script>
+<script type="module">
+const $ = id => document.getElementById(id);
+const showErr = m => { const e = $('err'); e.style.display = 'flex'; e.textContent = m; };
+
+let THREE;
+try {
+  THREE = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
+} catch (e) { showErr('初回の読み込みにはインターネット接続が必要です'); throw e; }
+if (!window.UCHU_DATA) { showErr('星データ(stars.js)が見つかりません'); throw new Error('no data'); }
+
+// ═══════════════ 日本語名 ═══════════════
+const JP_CON = {And:"アンドロメダ座",Ant:"ポンプ座",Aps:"ふうちょう座",Aqr:"みずがめ座",Aql:"わし座",Ara:"さいだん座",Ari:"おひつじ座",Aur:"ぎょしゃ座",Boo:"うしかい座",Cae:"ちょうこくぐ座",Cam:"きりん座",Cnc:"かに座",CVn:"りょうけん座",CMa:"おおいぬ座",CMi:"こいぬ座",Cap:"やぎ座",Car:"りゅうこつ座",Cas:"カシオペヤ座",Cen:"ケンタウルス座",Cep:"ケフェウス座",Cet:"くじら座",Cha:"カメレオン座",Cir:"コンパス座",Col:"はと座",Com:"かみのけ座",CrA:"みなみのかんむり座",CrB:"かんむり座",Crv:"からす座",Crt:"コップ座",Cru:"みなみじゅうじ座",Cyg:"はくちょう座",Del:"いるか座",Dor:"かじき座",Dra:"りゅう座",Equ:"こうま座",Eri:"エリダヌス座",For:"ろ座",Gem:"ふたご座",Gru:"つる座",Her:"ヘルクレス座",Hor:"とけい座",Hya:"うみへび座",Hyi:"みずへび座",Ind:"インディアン座",Lac:"とかげ座",Leo:"しし座",LMi:"こじし座",Lep:"うさぎ座",Lib:"てんびん座",Lup:"おおかみ座",Lyn:"やまねこ座",Lyr:"こと座",Men:"テーブルさん座",Mic:"けんびきょう座",Mon:"いっかくじゅう座",Mus:"はえ座",Nor:"じょうぎ座",Oct:"はちぶんぎ座",Oph:"へびつかい座",Ori:"オリオン座",Pav:"くじゃく座",Peg:"ペガスス座",Per:"ペルセウス座",Phe:"ほうおう座",Pic:"がか座",Psc:"うお座",PsA:"みなみのうお座",Pup:"とも座",Pyx:"らしんばん座",Ret:"レチクル座",Sge:"や座",Sgr:"いて座",Sco:"さそり座",Scl:"ちょうこくしつ座",Sct:"たて座",Ser:"へび座",Sex:"ろくぶんぎ座",Tau:"おうし座",Tel:"ぼうえんきょう座",Tri:"さんかく座",TrA:"みなみのさんかく座",Tuc:"きょしちょう座",UMa:"おおぐま座",UMi:"こぐま座",Vel:"ほ座",Vir:"おとめ座",Vol:"とびうお座",Vul:"こぎつね座"};
+const JP_STAR = {Sirius:"シリウス",Canopus:"カノープス",Arcturus:"アークトゥルス","Rigil Kentaurus":"リギル・ケンタウルス",Vega:"ベガ",Capella:"カペラ",Rigel:"リゲル",Procyon:"プロキオン",Achernar:"アケルナル",Betelgeuse:"ベテルギウス",Hadar:"ハダル",Altair:"アルタイル",Acrux:"アクルックス",Aldebaran:"アルデバラン",Antares:"アンタレス",Spica:"スピカ",Pollux:"ポルックス",Fomalhaut:"フォーマルハウト",Deneb:"デネブ",Mimosa:"ミモザ",Regulus:"レグルス",Adhara:"アダーラ",Castor:"カストル",Shaula:"シャウラ",Bellatrix:"ベラトリックス",Elnath:"エルナト",Miaplacidus:"ミアプラキドゥス",Alnilam:"アルニラム",Alnitak:"アルニタク",Alnair:"アルナイル",Alioth:"アリオト",Mirfak:"ミルファク",Dubhe:"ドゥーベ",Wezen:"ウェズン",Alkaid:"アルカイド",Sargas:"サルガス",Menkalinan:"メンカリナン",Alhena:"アルヘナ",Polaris:"ポラリス（北極星）",Mizar:"ミザール",Alphard:"アルファルド",Hamal:"ハマル",Diphda:"ディフダ",Alpheratz:"アルフェラッツ",Mirach:"ミラク",Algol:"アルゴル（悪魔の星）",Albireo:"アルビレオ",Denebola:"デネボラ",Alphecca:"アルフェッカ",Rasalhague:"ラス・アルハゲ",Eltanin:"エルタニン",Kochab:"コカブ",Scheat:"シェアト",Markab:"マルカブ",Menkar:"メンカル",Unukalhai:"ウヌクアルハイ",Sadr:"サドル",Enif:"エニフ",Mira:"ミラ（不思議の星）",Thuban:"トゥバン（昔の北極星）",Arneb:"アルネブ",Nunki:"ヌンキ",Ankaa:"アンカア",Izar:"イザール",Almach:"アルマク",Caph:"カフ",Schedar:"シェダル",Merak:"メラク",Phecda:"フェクダ",Megrez:"メグレズ",Atria:"アトリア",Avior:"アヴィオール",Aspidiske:"アスピディスケ",Suhail:"スハイル",Naos:"ナオス",Mintaka:"ミンタカ",Saiph:"サイフ",Alcyone:"アルキオーネ（すばる）",Atlas:"アトラス",Electra:"エレクトラ",Maia:"マイア",Merope:"メローペ",Taygeta:"タイゲタ",Gacrux:"ガクルックス","Kaus Australis":"カウス・アウストラリス"};
+
+// 88星座の紹介（神話・特徴のひとこと）
+const CON_INFO = {And:"鎖につながれた王女。アンドロメダ銀河のすみか",Ant:"空気ポンプ。18世紀生まれの科学の星座",Aps:"極楽鳥。南天の小さな星座",Aqr:"水を注ぐ美少年ガニメデ。黄道十二星座",Aql:"ゼウスの使いの鷲。アルタイルは七夕の彦星",Ara:"神々が誓いを立てた祭壇",Ari:"空飛ぶ金色の羊。黄道十二星座の先頭",Aur:"戦車を駆る王。カペラは冬の六角形の一角",Boo:"熊を追う牛飼い。アークトゥルスは春の主役",Cae:"彫刻家ののみ。南天の小星座",Cam:"北の空の静かなキリン",Cnc:"ヘルクレスに踏まれた蟹。プレセペ星団が有名",CVn:"牛飼いが連れる2匹の猟犬",CMa:"オリオンの猟犬。全天一明るいシリウスの星座",CMi:"小さな相棒。プロキオンは冬の大三角の一角",Cap:"上半身ヤギ・下半身魚。黄道十二星座",Car:"アルゴ船の竜骨。カノープスは幸運の星",Cas:"自慢好きの王妃。Wの形は北の道しるべ",Cen:"賢者ケイロン。太陽に最も近い星のすみか",Cep:"エチオピア王。五角形の家の形",Cet:"王女を襲った海の怪物。不思議星ミラが光る",Cha:"南極近くの小さなカメレオン",Cir:"製図用コンパス。南天の小星座",Col:"ノアの箱舟から放たれた鳩",Com:"王妃が捧げた髪。銀河の群れが見える場所",CrA:"いて座の足元の小さな冠",CrB:"王女アリアドネの冠。美しい半円",Crv:"嘘をついて黒くされたアポロンのカラス",Crt:"アポロンの聖杯",Cru:"全天最小の星座。南半球の象徴サザンクロス",Cyg:"白鳥に化けたゼウス。デネブと北十字",Del:"海神の使いのイルカ。小さなひし形",Dor:"大マゼラン雲を抱く南天のカジキ",Dra:"黄金のリンゴを守る竜。北極星の周りを巻く",Equ:"全天で2番目に小さな子馬",Eri:"天を流れる大河。果てにアケルナルが輝く",For:"化学者の炉。南天の静かな星座",Gem:"カストルとポルックスの双子。黄道十二星座",Gru:"優雅に飛ぶ鶴。秋の南の空",Her:"12の冒険の英雄。球状星団M13が有名",Hor:"振り子時計。南天の小星座",Hya:"全天最大の星座。9つの頭を持つ大蛇",Hyi:"南極近くの小さな水蛇",Ind:"南天に立つ先住民の姿",Lac:"北の空を走る小さなトカゲ",Leo:"ヘルクレスが倒した獅子。春の王者",LMi:"獅子の子。親の背にひっそりと",Lep:"オリオンの足元を逃げる野ウサギ",Lib:"正義の女神の天秤。黄道十二星座",Lup:"ケンタウルスに捕らえられた狼",Lyn:"「山猫の目でないと見えない」暗い星座",Lyr:"オルフェウスの竪琴。ベガは七夕の織姫",Men:"テーブル山。全天でいちばん暗い星座",Mic:"顕微鏡。18世紀の科学の星座",Mon:"冬の大三角の中にひそむユニコーン",Mus:"南十字のそばの小さなハエ",Nor:"製図用の定規。天の川の中",Oct:"天の南極を含む八分儀",Oph:"医術の神。大蛇を操る",Ori:"狩人の王。三ツ星と大星雲、冬の主役",Pav:"女神ヘラの聖鳥クジャク",Peg:"翼を持つ天馬。秋の四辺形",Per:"メデューサを倒した英雄。悪魔の星アルゴル",Phe:"何度でも蘇る不死鳥",Pic:"画家のイーゼル。南天の小星座",Psc:"紐で結ばれた親子の魚。黄道十二星座",PsA:"秋のひとつ星フォーマルハウトの星座",Pup:"アルゴ船の船尾。天の川が濃い場所",Pyx:"アルゴ船の羅針盤",Ret:"望遠鏡の照準線。南天の小星座",Sge:"愛の神が放った矢。全天3番目に小さい",Sgr:"弓を引くケンタウルス。天の川銀河の中心方向",Sco:"オリオンを刺したサソリ。真紅のアンタレス",Scl:"彫刻家のアトリエ。秋の南の空",Sct:"王の盾。天の川の輝く雲の中",Ser:"へびつかいに持たれ頭と尾に分かれた大蛇",Sex:"天文観測の六分儀",Tau:"白い牡牛に化けたゼウス。すばるとアルデバラン",Tel:"南天の望遠鏡",Tri:"小さな三角形。渦巻銀河M33のすみか",TrA:"南天のもうひとつの三角形",Tuc:"大きなくちばしのオオハシ。小マゼラン雲を抱く",UMa:"北斗七星を含む大熊",UMi:"北極星ポラリスを尾の先に持つ小熊",Vel:"アルゴ船の帆。南の天の川",Vir:"豊穣の女神。スピカは真珠星",Vol:"南天を飛ぶトビウオ",Vul:"ガチョウをくわえた小ぎつね"};
+
+// ═══════════════ 星の色（B-V色指数 → 実際の色温度 → RGB）═══════════════
+function bvToRGB(bv) {
+  bv = Math.max(-0.4, Math.min(2.0, bv));
+  let k = 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+  k /= 100;
+  let r, g, b;
+  if (k <= 66) { r = 255; g = 99.4708 * Math.log(k) - 161.12; }
+  else { r = 329.698 * Math.pow(k - 60, -0.1332); g = 288.122 * Math.pow(k - 60, -0.0755); }
+  if (k >= 66) b = 255; else if (k <= 19) b = 0; else b = 138.518 * Math.log(k - 10) - 305.045;
+  const c = v => Math.max(0, Math.min(1, v / 255));
+  return [c(r) * 0.93 + 0.07, c(g) * 0.93 + 0.07, c(b) * 0.93 + 0.07]; // 天体写真寄りの色乗り
+}
+
+// ═══════════════ 基本セットアップ ═══════════════
+const D = window.UCHU_DATA;
+const canvas = $('cv');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+const PR = Math.min(window.devicePixelRatio || 1, 2);
+renderer.setPixelRatio(PR);
+renderer.setSize(innerWidth, innerHeight);
+renderer.autoClear = false; // 星空の上に歴史モードの地球を重ね描きするため手動クリア
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 2e6);
+camera.up.set(0, 0, 1); // 天の北極が上（データ座標系に合わせる）
+camera.position.set(0, 0, 0);
+
+// ═══════════════ 星のシェーダー（実在星・天の川・新生星で共用）═══════════════
+const starUniforms = { uTime: { value: 0 }, uSize: { value: PR } };
+const starMat = new THREE.ShaderMaterial({
+  uniforms: starUniforms,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
+  vertexShader: `
+    uniform float uTime; uniform float uSize;
+    attribute float aMag; attribute vec3 aColor; attribute float aPhase;
+    varying vec3 vColor; varying float vInt;
+    void main(){
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float tw = 0.92 + 0.08 * sin(uTime * (1.2 + aPhase * 2.3) + aPhase * 37.0);
+      float s = clamp(10.0 - aMag * 1.0, 1.6, 16.0);
+      vInt = clamp(pow(10.0, -0.16 * aMag) * 2.6, 0.0, 1.8) * tw;
+      vColor = aColor;
+      gl_PointSize = s * uSize;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    precision highp float;
+    varying vec3 vColor; varying float vInt;
+    void main(){
+      vec2 uv = gl_PointCoord - 0.5;
+      float d = length(uv) * 2.0;
+      if(d > 1.0) discard;
+      float core = exp(-d * d * 9.0);
+      float halo = exp(-d * 2.7) * 0.42;
+      float spikeW = smoothstep(0.75, 1.4, vInt);
+      float spike = (exp(-abs(uv.x) * 26.0) + exp(-abs(uv.y) * 26.0)) * exp(-d * 2.0) * 0.5 * spikeW;
+      float a = (core + halo + spike) * vInt;
+      gl_FragColor = vec4(vColor * a, a);
+    }`
+});
+
+// ═══════════════ 実在の星 + 天の川（プロシージャル微光星）═══════════════
+const nReal = D.stars.length;
+
+// 銀河座標 → 赤道座標（J2000 標準変換）
+function galToEq(gx, gy, gz) {
+  return [
+    -0.0548755604 * gx + 0.4941094279 * gy - 0.8676661490 * gz,
+    -0.8734370902 * gx - 0.4448296300 * gy - 0.1980763734 * gz,
+    -0.4838350155 * gx + 0.7469822445 * gy + 0.4559837762 * gz
+  ];
+}
+function gauss() { let s = 0; for (let i = 0; i < 4; i++) s += Math.random(); return (s - 2) * 1.2; }
+
+const mwPts = [];
+// 天の川の帯（中心方向ほど濃く）
+for (let i = 0; i < 26000; i++) {
+  let l, b;
+  while (true) {
+    l = Math.random() * Math.PI * 2 - Math.PI;
+    if (Math.random() < 0.45 + 0.55 * Math.exp(-(l * l) / 1.9)) break;
+  }
+  b = (Math.random() < 0.78 ? gauss() * 0.075 : gauss() * 0.30);
+  mwPts.push({ l, b, r: 3000 + Math.random() * 5000, mag: 5.4 + Math.random() * 2.1, bv: -0.1 + Math.random() * 1.5 });
+}
+// 銀河中心のバルジ（いて座方向のふくらみ）
+for (let i = 0; i < 6000; i++) {
+  mwPts.push({ l: gauss() * 0.30, b: gauss() * 0.14, r: 6000 + Math.random() * 2500, mag: 5.7 + Math.random() * 1.8, bv: 0.6 + Math.random() * 0.9 });
+}
+// 全天の微光星
+for (let i = 0; i < 6000; i++) {
+  mwPts.push({ l: Math.random() * Math.PI * 2, b: Math.asin(Math.random() * 2 - 1), r: 2500 + Math.random() * 4000, mag: 5.9 + Math.random() * 1.5, bv: -0.1 + Math.random() * 1.4 });
+}
+
+const nSun = nReal;                      // 太陽（私たちの母星）を1個追加
+const nAll = nReal + 1 + mwPts.length;
+const pos = new Float32Array(nAll * 3), col = new Float32Array(nAll * 3);
+const mag = new Float32Array(nAll), pha = new Float32Array(nAll);
+for (let i = 0; i < nReal; i++) {
+  const s = D.stars[i];
+  pos[i * 3] = s[0]; pos[i * 3 + 1] = s[1]; pos[i * 3 + 2] = s[2];
+  const c = bvToRGB(s[4]);
+  col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+  mag[i] = s[3]; pha[i] = Math.random();
+}
+// 太陽：原点に実在の色で置く（G型星・絶対等級4.83）
+{
+  const c = bvToRGB(0.656);
+  pos[nSun * 3] = 0; pos[nSun * 3 + 1] = 0; pos[nSun * 3 + 2] = 0;
+  col[nSun * 3] = c[0]; col[nSun * 3 + 1] = c[1]; col[nSun * 3 + 2] = c[2];
+  mag[nSun] = 4.83; pha[nSun] = Math.random();
+}
+// 全実在星を「絶対等級」に換算しておく（カメラ位置に応じた本当の明るさ計算のため）
+const absMag = new Float32Array(nReal + 1);
+for (let i = 0; i < nReal; i++) {
+  const r = Math.max(Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]), 0.1);
+  absMag[i] = mag[i] - 5 * (Math.log10(r) - 1);
+}
+absMag[nSun] = 4.83;
+for (let i = 0; i < mwPts.length; i++) {
+  const p = mwPts[i], j = nReal + 1 + i;
+  const cb = Math.cos(p.b);
+  const e = galToEq(cb * Math.cos(p.l), cb * Math.sin(p.l), Math.sin(p.b));
+  pos[j * 3] = e[0] * p.r; pos[j * 3 + 1] = e[1] * p.r; pos[j * 3 + 2] = e[2] * p.r;
+  const c = bvToRGB(p.bv);
+  col[j * 3] = c[0]; col[j * 3 + 1] = c[1]; col[j * 3 + 2] = c[2];
+  mag[j] = p.mag; pha[j] = Math.random();
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+starGeo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
+starGeo.setAttribute('aMag', new THREE.BufferAttribute(mag, 1));
+starGeo.setAttribute('aPhase', new THREE.BufferAttribute(pha, 1));
+const starPoints = new THREE.Points(starGeo, starMat);
+starPoints.frustumCulled = false;
+scene.add(starPoints);
+
+// カメラからの実距離で明るさを毎コマ更新（近い星は本当に明るく＝本物の奥行き感）
+function updateApparentMags() {
+  const cp = camera.position;
+  for (let i = 0; i <= nReal; i++) {
+    const dx = pos[i * 3] - cp.x, dy = pos[i * 3 + 1] - cp.y, dz = pos[i * 3 + 2] - cp.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    mag[i] = d < 0.25 ? 25 : absMag[i] + 5 * (Math.log10(d) - 1); // 近すぎる星（地球モードの太陽）は非表示
+  }
+  starGeo.attributes.aMag.needsUpdate = true;
+}
+
+// ═══════════════ 天の川の乳白色のもや（見えない無数の星の集合光）═══════════════
+const fogUniforms = { uSizeF: { value: PR } };
+const fogMat = new THREE.ShaderMaterial({
+  uniforms: fogUniforms,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
+  vertexShader: `
+    uniform float uSizeF;
+    attribute float aSize; attribute float aAlpha; attribute vec3 aColor;
+    varying float vA; varying vec3 vC;
+    void main(){
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aSize * uSizeF;
+      vA = aAlpha; vC = aColor;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    precision highp float;
+    varying float vA; varying vec3 vC;
+    void main(){
+      vec2 uv = gl_PointCoord - 0.5;
+      float d = length(uv) * 2.0;
+      float a = exp(-d * d * 4.0) * vA;
+      gl_FragColor = vec4(vC * a, a);
+    }`
+});
+const NFOG = 520;
+const fpos = new Float32Array(NFOG * 3), fcol = new Float32Array(NFOG * 3);
+const fsize = new Float32Array(NFOG), falpha = new Float32Array(NFOG);
+for (let i = 0; i < NFOG; i++) {
+  let l, b, size, alpha, warm;
+  if (i < 430) { // 帯に沿ったもや
+    while (true) { l = Math.random() * Math.PI * 2 - Math.PI; if (Math.random() < 0.4 + 0.6 * Math.exp(-(l * l) / 1.7)) break; }
+    b = gauss() * 0.085;
+    size = 70 + Math.random() * 150; alpha = 0.030 + Math.random() * 0.040;
+    warm = 0.10 + 0.25 * Math.exp(-(l * l) / 0.9);
+  } else { // 銀河中心の明るいふくらみ
+    l = gauss() * 0.22; b = gauss() * 0.10;
+    size = 120 + Math.random() * 180; alpha = 0.050 + Math.random() * 0.050;
+    warm = 0.45;
+  }
+  const cb = Math.cos(b);
+  const e = galToEq(cb * Math.cos(l), cb * Math.sin(l), Math.sin(b));
+  fpos[i * 3] = e[0] * 7000; fpos[i * 3 + 1] = e[1] * 7000; fpos[i * 3 + 2] = e[2] * 7000;
+  fcol[i * 3] = 0.86 + warm * 0.14; fcol[i * 3 + 1] = 0.86 + warm * 0.02; fcol[i * 3 + 2] = 0.92 - warm * 0.25;
+  fsize[i] = size; falpha[i] = alpha;
+}
+const fogGeo = new THREE.BufferGeometry();
+fogGeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+fogGeo.setAttribute('aColor', new THREE.BufferAttribute(fcol, 3));
+fogGeo.setAttribute('aSize', new THREE.BufferAttribute(fsize, 1));
+fogGeo.setAttribute('aAlpha', new THREE.BufferAttribute(falpha, 1));
+const fogPoints = new THREE.Points(fogGeo, fogMat);
+fogPoints.frustumCulled = false;
+scene.add(fogPoints);
+
+// ═══════════════ 銀河・星雲（実在の位置に淡い光）═══════════════
+function glowSprite(r, g, b, sx, sy, opacity, soft) {
+  const cv2 = document.createElement('canvas'); cv2.width = cv2.height = 128;
+  const ctx = cv2.getContext('2d');
+  const gr = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, `rgba(${r},${g},${b},1)`);
+  gr.addColorStop(soft, `rgba(${r},${g},${b},0.35)`);
+  gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(cv2);
+  const m = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false });
+  const sp = new THREE.Sprite(m); sp.scale.set(sx, sy, 1);
+  return sp;
+}
+function radec(raDeg, decDeg, dist) {
+  const ra = raDeg * Math.PI / 180, de = decDeg * Math.PI / 180;
+  return new THREE.Vector3(Math.cos(de) * Math.cos(ra) * dist, Math.cos(de) * Math.sin(ra) * dist, Math.sin(de) * dist);
+}
+const dsos = [
+  { p: radec(10.685, 41.269, 700000), s: glowSprite(190, 200, 255, 42000, 16000, 0.34, 0.25), rot: 0.66 }, // アンドロメダ銀河
+  { p: radec(10.685, 41.269, 700000), s: glowSprite(255, 240, 220, 12000, 7000, 0.4, 0.3), rot: 0.66 },   // 同・中心核
+  { p: radec(80.89, -69.76, 50000), s: glowSprite(210, 210, 255, 4600, 3400, 0.3, 0.35), rot: 0.4 },      // 大マゼラン雲
+  { p: radec(13.19, -72.83, 61000), s: glowSprite(205, 210, 250, 2300, 1700, 0.26, 0.35), rot: 0.2 },     // 小マゼラン雲
+  { p: radec(83.82, -5.39, 412), s: glowSprite(255, 160, 180, 7, 5.6, 0.5, 0.3), rot: 0 },                // オリオン大星雲
+  { p: radec(56.87, 24.11, 136), s: glowSprite(150, 190, 255, 3.2, 2.6, 0.3, 0.4), rot: 0 }               // すばる(プレアデス)の青い靄
+];
+for (const d of dsos) { d.s.position.copy(d.p); d.s.material.rotation = d.rot; scene.add(d.s); }
+
+// ═══════════════ 星座線 ═══════════════
+const linePos = new Float32Array(D.lines.length * 3);
+for (let i = 0; i < D.lines.length; i++) {
+  const s = D.stars[D.lines[i]];
+  linePos[i * 3] = s[0]; linePos[i * 3 + 1] = s[1]; linePos[i * 3 + 2] = s[2];
+}
+const lineGeo = new THREE.BufferGeometry();
+lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+const consLines = new THREE.LineSegments(lineGeo,
+  new THREE.LineBasicMaterial({ color: 0x6f95e8, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+consLines.frustumCulled = false;
+consLines.visible = false;
+scene.add(consLines);
+
+// 星座ごとの線・中心方向（検索とハイライト用）
+const conSegs = Array.from({ length: D.cons.length }, () => []);
+for (let i = 0; i < D.lines.length; i += 2) {
+  const a = D.lines[i], b = D.lines[i + 1];
+  const ci = D.stars[a][5] >= 0 ? D.stars[a][5] : D.stars[b][5];
+  if (ci >= 0) conSegs[ci].push(a, b);
+}
+const conDir = conSegs.map(segs => {
+  const v = new THREE.Vector3();
+  for (const idx of segs) {
+    const s = D.stars[idx];
+    v.add(new THREE.Vector3(s[0], s[1], s[2]).normalize());
+  }
+  return v.normalize();
+});
+// 選択中の星座を明るく光らせる線
+const hlGeo = new THREE.BufferGeometry();
+const hlLines = new THREE.LineSegments(hlGeo,
+  new THREE.LineBasicMaterial({ color: 0xbcd4ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+hlLines.frustumCulled = false;
+hlLines.visible = false;
+scene.add(hlLines);
+
+function conSeason(ci) { // その星座の見頃（中心方向の位置から計算）
+  const d = conDir[ci];
+  const dec = Math.asin(Math.max(-1, Math.min(1, d.z))) * 180 / Math.PI;
+  if (dec > 62) return '一年中（北の空）';
+  if (dec < -62) return '日本からは見えない南天';
+  const raH = ((Math.atan2(d.y, d.x) * 180 / Math.PI + 360) % 360) / 15;
+  let m = Math.round(3.7 + ((raH - 9 + 24) % 24) / 2);
+  m = ((m - 1) % 12) + 1;
+  return `見頃 ${m}月ごろ` + (dec < -35 ? '（日本では低い南の空）' : '');
+}
+function conBrightest(ci) { // その星座でいちばん明るい星
+  let bi = -1, bm = 99;
+  for (let i = 0; i < nReal; i++) if (D.stars[i][5] === ci && D.stars[i][3] < bm) { bm = D.stars[i][3]; bi = i; }
+  if (bi < 0) return '';
+  const p = D.names[bi];
+  return p ? (JP_STAR[p] || p) : '';
+}
+
+// ═══════════════ 新生星（無限に生まれ、ブラックホールへ還る）═══════════════
+const NB_MAX = 800;
+const nb = [];
+const nbPos = new Float32Array(NB_MAX * 3), nbCol = new Float32Array(NB_MAX * 3);
+const nbMag = new Float32Array(NB_MAX), nbPha = new Float32Array(NB_MAX);
+const nbGeo = new THREE.BufferGeometry();
+nbGeo.setAttribute('position', new THREE.BufferAttribute(nbPos, 3).setUsage(THREE.DynamicDrawUsage));
+nbGeo.setAttribute('aColor', new THREE.BufferAttribute(nbCol, 3).setUsage(THREE.DynamicDrawUsage));
+nbGeo.setAttribute('aMag', new THREE.BufferAttribute(nbMag, 1).setUsage(THREE.DynamicDrawUsage));
+nbGeo.setAttribute('aPhase', new THREE.BufferAttribute(nbPha, 1));
+for (let i = 0; i < NB_MAX; i++) nbPha[i] = Math.random();
+const nbPoints = new THREE.Points(nbGeo, starMat);
+nbPoints.frustumCulled = false;
+nbPoints.visible = false; // BHモードON中のみ表示
+scene.add(nbPoints);
+
+const bhWorld = new THREE.Vector3();
+const ABSORB_R = 1.7;
+const GAL_AXIS = new THREE.Vector3().randomDirection(); // この宇宙の銀河回転軸（起動ごとに違う銀河が育つ）
+let bhMass = 900;         // ブラックホールの質量（星を呑むほど重くなる）
+let born = 0, gone = 0, flash = 0;
+const SIM = { speed: 1 }; // 時間の早回し倍率（動作確認・将来のタイムラプス用）
+
+function spawnStar() {
+  if (nb.length >= NB_MAX) return;
+  const c = bvToRGB(-0.3 + Math.random() * 1.6);
+  // 星はBHを取り巻く雲の中に「ほぼ静止」して生まれる（原作準拠：自力で動くのは1%の流れ星だけ）
+  const dir = new THREE.Vector3().randomDirection();
+  const d = 14 + Math.random() * 40;
+  const p = bhWorld.clone().add(dir.clone().multiplyScalar(d));
+  let v;
+  if (Math.random() < 0.01) {
+    v = new THREE.Vector3().randomDirection().multiplyScalar(6 + Math.random() * 8); // ごく稀な流れ星
+  } else {
+    let tang = new THREE.Vector3().crossVectors(GAL_AXIS, dir);
+    if (tang.lengthSq() < 1e-6) tang.set(1, 0, 0);
+    // 生まれた雲が持つ回転の勢い（角運動量）。これがないと全星が即BHへ直落ちする
+    const vc = Math.sqrt(bhMass / d);
+    v = tang.normalize().multiplyScalar(vc * (0.35 + Math.random() * 0.4))
+          .addScaledVector(new THREE.Vector3().randomDirection(), 0.3); // 雲の乱流ぶんの揺らぎ
+  }
+  nb.push({ p, v, c, m: 2.1 + Math.random() * 2.8, age: 0, doom: false });
+  born++;
+  if (nb.length > NB_MAX * 0.92) doomOldest(); // 満員が近づくと古い星の軌道が乱れ始める
+}
+
+// 最も年老いた星の軌道が乱れ、BHへの転落が始まる
+function doomOldest() {
+  let old = null;
+  for (const s of nb) if (!s.doom && (!old || s.age > old.age)) old = s;
+  if (old) old.doom = true;
+}
+
+// 力学: BHの重力 + 星同士の引力(重心近似) + 円軌道への緩やかな収束(ガス摩擦の代役)
+// → 時間をかけて自然に回転円盤（ミニ銀河）へ育つ
+const _com = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _tan = new THREE.Vector3();
+function updateNewborn(sdt) {
+  let rem = sdt;
+  while (rem > 1e-6) { // 早回しでも軌道が壊れないよう小刻みに計算
+    const dt = Math.min(rem, 0.05); rem -= dt;
+    const n = nb.length;
+    _com.set(0, 0, 0);
+    for (const s of nb) _com.add(s.p);
+    if (n > 0) _com.multiplyScalar(1 / n);
+    for (let i = n - 1; i >= 0; i--) {
+      const s = nb[i];
+      s.age += dt;
+      if (s.doom) { // 転落中の星: 回りながら確実にBHへ落ちる「死の螺旋」（決定論的）
+        _b.copy(s.p).sub(bhWorld);
+        const h = _b.dot(GAL_AXIS);
+        _a.copy(_b).addScaledVector(GAL_AXIS, -h);
+        let rr = Math.max(_a.length(), 0.01);
+        _a.multiplyScalar(1 / rr);
+        _tan.crossVectors(GAL_AXIS, _a);
+        const ang = Math.sqrt(bhMass / Math.max(rr, 1.5)) / rr * dt; // ケプラー回転しつつ
+        const shrink = Math.exp(-dt / 12);                            // 半径がゆっくり縮む
+        const nr = rr * shrink;
+        s.p.copy(bhWorld).addScaledVector(_a, Math.cos(ang) * nr)
+           .addScaledVector(_tan, Math.sin(ang) * nr).addScaledVector(GAL_AXIS, h * shrink);
+        if (nr < ABSORB_R) { nb.splice(i, 1); gone++; flash = 1; }
+        continue;
+      }
+      // BHの重力
+      _a.copy(bhWorld).sub(s.p);
+      const d = Math.max(_a.length(), 0.6);
+      s.v.addScaledVector(_a.normalize(), bhMass / (d * d) * dt);
+      // 星同士の引力（群れ全体の重心へ緩く引き合う）
+      _b.copy(_com).sub(s.p);
+      const dc2 = _b.lengthSq() + 25;
+      s.v.addScaledVector(_b.normalize(), 60 * (n / NB_MAX) / dc2 * dt);
+      // 円盤化：回転軸まわりの円軌道へゆっくり寄せる（ほんの少し内向き→最後はBHへ還る）
+      _b.copy(s.p).sub(bhWorld);
+      _b.addScaledVector(GAL_AXIS, -_b.dot(GAL_AXIS)); // 回転面内の成分
+      if (_b.lengthSq() > 1.0) {
+        _b.normalize();
+        _tan.crossVectors(GAL_AXIS, _b);
+        const vc = Math.sqrt(bhMass / Math.max(d, 2.5));
+        _a.copy(_tan).multiplyScalar(vc).addScaledVector(_b, -vc * 0.05);
+        s.v.lerp(_a, Math.min(1, 0.02 * dt));
+      }
+      const sp = s.v.length(), cap = d < 6 ? 50 : 30; // 重いBHの軌道速度でも保てる上限
+      if (sp > cap) s.v.multiplyScalar(cap / sp);
+      s.p.addScaledVector(s.v, dt);
+      if (d < ABSORB_R) { nb.splice(i, 1); gone++; flash = 1; }
+    }
+  }
+}
+
+// 新生星の描画バッファ書き込み（1コマ1回だけ）
+function writeNbBuffers() {
+  for (let i = 0; i < nb.length; i++) {
+    const s = nb[i];
+    nbPos[i * 3] = s.p.x; nbPos[i * 3 + 1] = s.p.y; nbPos[i * 3 + 2] = s.p.z;
+    nbCol[i * 3] = s.c[0]; nbCol[i * 3 + 1] = s.c[1]; nbCol[i * 3 + 2] = s.c[2];
+    // 生まれた直後はふわっと明るく、BHに近づくと加熱で輝く
+    const dBH = s.p.distanceTo(bhWorld);
+    const heat = Math.max(0, 1.6 - dBH / 6) + (s.doom ? 0.8 : 0); // 落ちていく星は最後に輝く
+    const fadeIn = Math.min(1, s.age / 1.5);
+    const dCam = s.p.distanceTo(camera.position); // カメラからの距離で本当の明るさに
+    nbMag[i] = s.m - heat + (1 - fadeIn) * 4 + 5 * Math.log10(Math.max(dCam, 1) / 26);
+  }
+  nbGeo.attributes.position.needsUpdate = true;
+  nbGeo.attributes.aColor.needsUpdate = true;
+  nbGeo.attributes.aMag.needsUpdate = true;
+  nbGeo.setDrawRange(0, nb.length);
+}
+
+// ═══════════════ ブラックホール（重力レンズはポストプロセス）═══════════════
+const RS_WORLD = 1.05; // 見かけの事象の地平面サイズ
+const rt = new THREE.WebGLRenderTarget(innerWidth * PR, innerHeight * PR);
+const postScene = new THREE.Scene();
+const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const postUni = {
+  tS: { value: rt.texture },
+  uRes: { value: new THREE.Vector2(innerWidth * PR, innerHeight * PR) },
+  uBH: { value: new THREE.Vector2(-9999, -9999) },
+  uOn: { value: 0 }, uRpx: { value: 30 }, uTime: { value: 0 }, uFlash: { value: 0 }
+};
+const postMat = new THREE.ShaderMaterial({
+  uniforms: postUni,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  fragmentShader: `
+    precision highp float;
+    uniform sampler2D tS; uniform vec2 uRes; uniform vec2 uBH;
+    uniform float uOn, uRpx, uTime, uFlash;
+    varying vec2 vUv;
+    void main(){
+      vec2 p = vUv * uRes;
+      vec2 dv = p - uBH;
+      float r = length(dv) + 0.0001;
+      float rs = uRpx;
+      vec3 c;
+      if (uOn > 0.004) {
+        vec2 dir = dv / r;
+        float sw = clamp(rs * 1.6 / r, 0.0, 1.2) * uOn;   // 光の渦巻き
+        float cs = cos(sw), sn = sin(sw);
+        vec2 dirR = vec2(dir.x*cs - dir.y*sn, dir.x*sn + dir.y*cs);
+        float bend = min(rs * rs * 2.4 / r, r * 0.92) * uOn; // 重力レンズの曲がり
+        vec2 suv = clamp((p - dirR * bend) / uRes, 0.0, 1.0);
+        c = texture2D(tS, suv).rgb;
+        c *= mix(1.0, smoothstep(rs * 0.98, rs * 1.08, r), uOn); // 事象の地平面（真の闇）
+        float ring = exp(-pow((r - rs * 1.18) / (rs * 0.13), 2.0)); // 光子リング
+        c += vec3(1.0, 0.85, 0.6) * ring * 1.1 * uOn;
+        float ca = cos(0.55), sa = sin(0.55); // 降着円盤（傾いた光の渦）
+        vec2 q = vec2(dv.x*ca - dv.y*sa, dv.x*sa + dv.y*ca);
+        vec2 e = vec2(q.x, q.y * 3.2);
+        float er = length(e) / rs;
+        if (er > 1.2 && er < 5.0) {
+          float ang = atan(e.y, e.x);
+          float band = 0.6 + 0.4 * sin(er * 6.5 - uTime * 2.2 + ang * 3.0);
+          float fall = pow(1.5 / er, 2.4) * smoothstep(5.0, 3.6, er) * smoothstep(1.2, 1.5, er);
+          float dop = 1.0 + 0.9 * cos(ang); // ドップラービーミング（近づく側が明るい）
+          vec3 dc = mix(vec3(1.0, 0.95, 0.85), vec3(1.0, 0.5, 0.15), clamp((er - 1.2) / 3.2, 0.0, 1.0));
+          c += dc * band * fall * dop * 0.85 * uOn;
+        }
+        c += vec3(1.0, 0.95, 0.85) * uFlash * exp(-r / (rs * 6.0)) * uOn; // 星を呑んだ閃光
+      } else {
+        c = texture2D(tS, vUv).rgb;
+      }
+      float vg = 1.0 - 0.26 * pow(length(vUv - 0.5) * 1.35, 2.6); // 周辺減光
+      gl_FragColor = vec4(c * 1.22 * vg, 1.0);
+    }`
+});
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
+
+// ═══════════════ 歴史モード：地球46億年の旅（実史実の年表） ═══════════════
+// 別スケールのミニシーン（単位=地球半径）。背景には本物の星空がそのまま映る。
+const hScene = new THREE.Scene();
+const hCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 60000);
+
+const NOISE_GLSL = `
+  float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
+  float vnoise(vec3 p){
+    vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(
+      mix(mix(hash(i), hash(i+vec3(1.,0.,0.)), f.x), mix(hash(i+vec3(0.,1.,0.)), hash(i+vec3(1.,1.,0.)), f.x), f.y),
+      mix(mix(hash(i+vec3(0.,0.,1.)), hash(i+vec3(1.,0.,1.)), f.x), mix(hash(i+vec3(0.,1.,1.)), hash(i+vec3(1.,1.,1.)), f.x), f.y), f.z);
+  }
+  float fbm(vec3 p){ float v=0.0, a=0.5; for(int i=0;i<4;i++){ v+=a*vnoise(p); p*=2.03; a*=0.5; } return v; }`;
+const SPHERE_VERT = `
+  varying vec3 vN; varying vec3 vObj; varying vec3 vW;
+  void main(){
+    vObj = position;
+    vN = normalize(mat3(modelMatrix) * normal);
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vW = w.xyz;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }`;
+
+// 地球：大陸はノイズ生成、時代ごとに海・氷・雲・マグマ・街あかりが変わる
+const earthUni = {
+  uSunDir: { value: new THREE.Vector3(1, 0, 0) }, uTime: { value: 0 },
+  uSea: { value: 0.62 }, uIce: { value: 0.12 }, uCloud: { value: 0.5 },
+  uGlow: { value: 0 }, uCity: { value: 1 },
+  uLand: { value: new THREE.Color(0.14, 0.26, 0.1) },
+  uOcean: { value: new THREE.Color(0.02, 0.12, 0.3) }
+};
+const earthMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1, 96, 64),
+  new THREE.ShaderMaterial({
+    uniforms: earthUni,
+    vertexShader: SPHERE_VERT,
+    fragmentShader: `
+      precision highp float;
+      uniform vec3 uSunDir; uniform float uTime, uSea, uIce, uCloud, uGlow, uCity;
+      uniform vec3 uLand, uOcean;
+      varying vec3 vN; varying vec3 vObj; varying vec3 vW;
+      ${NOISE_GLSL}
+      void main(){
+        vec3 n = normalize(vN);
+        vec3 p = normalize(vObj);
+        float cont = fbm(p*2.6 + 7.3);
+        float landM = smoothstep(uSea, uSea + 0.06, cont);
+        vec3 col = mix(uOcean, uLand, landM);
+        col = mix(col, uOcean*1.6 + vec3(0.03,0.10,0.09), smoothstep(uSea-0.06, uSea, cont)*(1.0-landM)*0.7);
+        float lat = abs(p.y);
+        float ice = smoothstep(1.05-uIce, 1.12-uIce, lat + (cont-0.5)*0.15);
+        ice = max(ice, smoothstep(0.55, 0.95, uIce));
+        ice = clamp(ice, 0.0, 1.0);
+        col = mix(col, vec3(0.91,0.94,1.0), ice);
+        float cl = smoothstep(0.5, 0.72, fbm(p*3.4 + vec3(uTime*0.02, 0.0, uTime*0.013))) * uCloud;
+        col = mix(col, vec3(0.98), cl*0.85);
+        float ndl = clamp(dot(n, uSunDir), 0.0, 1.0);
+        vec3 outc = col * (0.04 + 1.1*ndl);
+        float cracks = pow(clamp(1.0 - abs(fbm(p*5.0+2.0)-0.5)*3.0, 0.0, 1.0), 6.0);
+        outc += vec3(1.0,0.36,0.08)*cracks*uGlow*1.7 + vec3(1.0,0.5,0.15)*uGlow*0.18;
+        float city = pow(vnoise(p*36.0), 7.0) * 6.0;
+        outc += vec3(1.0,0.82,0.45)*clamp(city,0.0,1.0)*landM*(1.0-ice)*pow(1.0-ndl,2.0)*uCity;
+        vec3 vDir = normalize(cameraPosition - vW);
+        float rim = pow(1.0 - clamp(dot(n, vDir), 0.0, 1.0), 3.0);
+        vec3 atmo = mix(vec3(0.35,0.55,1.0), vec3(1.0,0.45,0.2), uGlow);
+        outc += atmo * rim * (0.10 + 0.6*ndl);
+        gl_FragColor = vec4(outc, 1.0);
+      }`
+  }));
+hScene.add(earthMesh);
+
+// 月（誕生直後は今の4倍近くにいた＝実史実）
+const moonUni = { uSunDir: earthUni.uSunDir, uTime: { value: 0 } };
+const moonMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.27, 48, 32),
+  new THREE.ShaderMaterial({
+    uniforms: moonUni,
+    vertexShader: SPHERE_VERT,
+    fragmentShader: `
+      precision highp float;
+      uniform vec3 uSunDir;
+      varying vec3 vN; varying vec3 vObj; varying vec3 vW;
+      ${NOISE_GLSL}
+      void main(){
+        vec3 n = normalize(vN);
+        vec3 p = normalize(vObj);
+        float m = fbm(p*4.0 + 3.3);
+        vec3 col = vec3(0.5,0.5,0.52) * (0.55 + 0.5*m);
+        float crat = pow(clamp(1.0 - abs(fbm(p*8.0)-0.5)*4.0, 0.0, 1.0), 4.0);
+        col *= 1.0 - crat*0.25;
+        float ndl = clamp(dot(n, uSunDir), 0.0, 1.0);
+        gl_FragColor = vec4(col * (0.02 + 1.1*ndl), 1.0);
+      }`
+  }));
+hScene.add(moonMesh);
+
+// 太陽（地球から見た光。地球の裏に隠れると日の出・日の入りになる）
+const sunCore = glowSprite(255, 250, 235, 520, 520, 1.0, 0.35);
+const sunGlare = glowSprite(255, 240, 210, 6500, 6500, 0.5, 0.15);
+sunCore.material.depthTest = true; sunGlare.material.depthTest = true;
+sunCore.position.set(20000, 0, 0); sunGlare.position.set(20000, 0, 0);
+hScene.add(sunCore); hScene.add(sunGlare);
+
+// 年表: [出来事, 年代, 海面, 氷, 雲, マグマ, 街あかり, 大地の色, 海の色, 月の距離]（すべて実史実ベース）
+const ERAS = [
+  ['地球誕生 ─ マグマの海', '46億年前', 1.2, 0, 0.06, 1.0, 0, [0.28,0.11,0.06], [0.22,0.08,0.05], 0],
+  ['ジャイアント・インパクト ─ 月がうまれる', '45億年前', 1.2, 0, 0.1, 0.8, 0, [0.3,0.12,0.07], [0.25,0.1,0.06], 17],
+  ['海がうまれる', '42億年前', 0.74, 0, 0.55, 0.12, 0, [0.22,0.16,0.1], [0.02,0.09,0.2], 22],
+  ['最初の生命 ─ 深い海の中で', '38億年前', 0.72, 0.02, 0.45, 0, 0, [0.24,0.17,0.1], [0.02,0.12,0.26], 28],
+  ['光合成はじまる ─ 空気が変わっていく', '27億年前', 0.7, 0.04, 0.45, 0, 0, [0.3,0.2,0.11], [0.0,0.16,0.28], 34],
+  ['スノーボールアース ─ 全球凍結', '22億年前', 0.7, 1.0, 0.25, 0, 0, [0.3,0.2,0.11], [0.04,0.1,0.2], 38],
+  ['裸の大陸 ─ 生命はまだ海の中', '15億年前', 0.62, 0.1, 0.4, 0, 0, [0.34,0.22,0.12], [0.02,0.12,0.28], 45],
+  ['ふたたび全球凍結', '7億年前', 0.62, 1.0, 0.2, 0, 0, [0.34,0.22,0.12], [0.04,0.1,0.2], 51],
+  ['カンブリア爆発 ─ 生命の大進化', '5.4億年前', 0.6, 0.12, 0.45, 0, 0, [0.36,0.27,0.15], [0.02,0.14,0.3], 54],
+  ['植物が上陸 ─ 大地が緑に', '4.2億年前', 0.6, 0.1, 0.45, 0, 0, [0.16,0.3,0.1], [0.02,0.13,0.3], 55],
+  ['超大陸パンゲア ─ 大森林の時代', '3億年前', 0.54, 0.1, 0.45, 0, 0, [0.12,0.28,0.09], [0.02,0.12,0.3], 56],
+  ['史上最大の絶滅 ─ 灰色の空', '2.5億年前', 0.56, 0.05, 0.7, 0.08, 0, [0.3,0.2,0.11], [0.05,0.11,0.22], 57],
+  ['恐竜の時代', '1.5億年前', 0.6, 0.06, 0.5, 0, 0, [0.14,0.29,0.1], [0.02,0.13,0.3], 58],
+  ['小惑星衝突 ─ 恐竜の時代おわる', '6600万年前', 0.6, 0.05, 0.8, 0.12, 0, [0.26,0.2,0.12], [0.04,0.11,0.24], 59],
+  ['人類の祖先あらわれる', '500万年前', 0.62, 0.2, 0.5, 0, 0, [0.17,0.27,0.11], [0.02,0.12,0.3], 60],
+  ['文明の夜明け', '1万年前', 0.62, 0.15, 0.5, 0, 0.12, [0.15,0.27,0.1], [0.02,0.12,0.3], 60],
+  ['現在 ─ 青い地球', 'いま', 0.62, 0.12, 0.5, 0, 1.0, [0.14,0.26,0.1], [0.02,0.12,0.3], 60]
+];
+const HIST_LOOP = 185; // 46億年を約3分で一巡
+let histP = 0, mAng = 0.8, hTh = 0.7, hPh = 1.3, hR = 5.5, vhTh = 0, vhPh = 0, eraIdx = -1;
+
+function updateHistory(dt) {
+  histP += dt / HIST_LOOP;
+  if (histP >= 1) histP = 0;
+  const fi = histP * (ERAS.length - 1);
+  const i0 = Math.floor(fi), i1 = Math.min(i0 + 1, ERAS.length - 1);
+  let f = fi - i0; f = f * f * (3 - 2 * f);
+  const A = ERAS[i0], B = ERAS[i1];
+  const L = (a, b) => a + (b - a) * f;
+  earthUni.uSea.value = L(A[2], B[2]); earthUni.uIce.value = L(A[3], B[3]);
+  earthUni.uCloud.value = L(A[4], B[4]); earthUni.uGlow.value = L(A[5], B[5]);
+  earthUni.uCity.value = L(A[6], B[6]);
+  earthUni.uLand.value.setRGB(L(A[7][0], B[7][0]), L(A[7][1], B[7][1]), L(A[7][2], B[7][2]));
+  earthUni.uOcean.value.setRGB(L(A[8][0], B[8][0]), L(A[8][1], B[8][1]), L(A[8][2], B[8][2]));
+  earthUni.uTime.value = tNow;
+  earthMesh.rotation.y += dt * 0.35; // 自転
+  // 月：昔ほど近く、近いほど速く回る（実物理）
+  const mD = L(A[9], B[9]);
+  moonMesh.visible = mD > 5;
+  if (moonMesh.visible) {
+    mAng += dt * 1.2 / Math.pow(mD / 17, 1.5);
+    moonMesh.position.set(Math.cos(mAng) * mD, Math.sin(mAng * 0.6) * 1.6, Math.sin(mAng) * mD);
+  }
+  // 時代キャプション
+  const idx = Math.round(fi);
+  if (idx !== eraIdx) {
+    eraIdx = idx;
+    document.querySelector('#era .t').textContent = ERAS[idx][0];
+    document.querySelector('#era .y').textContent = ERAS[idx][1];
+  }
+  // カメラ：地球を常に枠内に、昼側を中心にゆったり漂う（ドラッグで夜側も見られる）
+  vhTh *= Math.pow(0.75, dt); vhPh *= Math.pow(0.75, dt);
+  const hTarget = Math.sin(tNow * 0.021) * 1.1; // 太陽のある側でゆらゆら
+  hTh += (hTarget - hTh) * Math.min(1, dt * 0.1) + vhTh * dt;
+  hPh += vhPh * dt + Math.sin(tNow * 0.031) * 0.03 * dt;
+  hPh = Math.max(0.35, Math.min(2.75, hPh));
+  hR = 5.2 + 1.6 * Math.sin(tNow * 0.043);
+  const sp = Math.sin(hPh);
+  hCam.position.set(hR * sp * Math.cos(hTh), hR * Math.cos(hPh), hR * sp * Math.sin(hTh));
+  hCam.lookAt(0, 0, 0);
+}
+
+// ═══════════════ カメラ ═══════════════
+// mode 'orbit' = 宇宙遊泳（常に中心を注視して楕円軌道で漂う）
+// mode 'gaze'  = 地球の夜空（太陽の位置から、地上で見えるままの空を見回す）
+let mode = 'orbit';
+let camTh = 1.51, camPh = 1.07;   // 遊泳カメラの方位・仰角
+let vTh = 0.015, vPh = 0.006;     // フリックの慣性
+let rPhase = 0, camR = 17, gazeR = 17; // 楕円軌道の呼吸半径（gazeRは滑らか用）
+let wTh = 0.035, wPh = 0.012, wanderNext = 0; // ランダム漂いの目標（数秒ごとに変わる）
+let gazeLon = 4.65, gazeLat = -0.5, vgLon = 0, vgLat = 0; // 地球モードの視線
+let seekCon = -1;                 // 星座へ視線移動中
+let lastUserT = -20, seekingBH = false;
+let bhOn = false, bhSeeded = false; // BHモード（隠し機能・初期OFF）
+
+function enterGaze() { // 今見ている向きを引き継いで地球モードへ
+  if (mode === 'orbit') { gazeLon = camTh + Math.PI; gazeLat = camPh - Math.PI / 2; }
+  mode = 'gaze';
+  $('bHome').classList.add('on');
+}
+function exitGaze() { mode = 'orbit'; $('bHome').classList.remove('on'); }
+
+const pointers = new Map();
+let pinchD0 = 0, fov0 = 62, tapInfo = null;
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 1) tapInfo = { x: e.clientX, y: e.clientY, t: performance.now() };
+  if (pointers.size === 2) {
+    const a = [...pointers.values()];
+    pinchD0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); fov0 = camera.fov;
+    tapInfo = null;
+  }
+  lastUserT = tNow; seekingBH = false; wakeUI();
+});
+canvas.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  const pr = pointers.get(e.pointerId);
+  const dx = e.clientX - pr.x, dy = e.clientY - pr.y;
+  pr.x = e.clientX; pr.y = e.clientY;
+  if (pointers.size === 1) {
+    const k = camera.fov / 62 * 0.0026;
+    if (mode === 'orbit') {
+      camTh -= dx * k; camPh += dy * k;
+      camPh = Math.max(0.15, Math.min(Math.PI - 0.15, camPh));
+      vTh = vTh * 0.5 - dx * k * 25; vPh = vPh * 0.5 + dy * k * 25; // フリックの勢い（長く滑る）
+    } else if (mode === 'history') { // 地球のまわりを見回す
+      hTh -= dx * 0.006; hPh -= dy * 0.006;
+      hPh = Math.max(0.35, Math.min(2.75, hPh));
+      vhTh = vhTh * 0.5 - dx * 0.09; vhPh = vhPh * 0.5 - dy * 0.09;
+    } else {
+      gazeLon -= dx * k; gazeLat += dy * k;
+      gazeLat = Math.max(-1.5, Math.min(1.5, gazeLat));
+      vgLon = vgLon * 0.5 - dx * k * 12; vgLat = vgLat * 0.5 + dy * k * 12;
+    }
+    seekCon = -1;
+    if (tapInfo && Math.hypot(e.clientX - tapInfo.x, e.clientY - tapInfo.y) > 9) tapInfo = null;
+  } else if (pointers.size === 2) {
+    const a = [...pointers.values()];
+    const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+    camera.fov = Math.max(26, Math.min(95, fov0 * pinchD0 / Math.max(d, 20)));
+    camera.updateProjectionMatrix(); updateSizeUniform();
+  }
+  lastUserT = tNow;
+});
+canvas.addEventListener('pointerup', e => {
+  pointers.delete(e.pointerId);
+  if (tapInfo && performance.now() - tapInfo.t < 450) pickStar(tapInfo.x, tapInfo.y);
+  tapInfo = null; lastUserT = tNow;
+});
+canvas.addEventListener('pointercancel', e => pointers.delete(e.pointerId));
+addEventListener('wheel', e => {
+  camera.fov = Math.max(26, Math.min(95, camera.fov + e.deltaY * 0.02));
+  camera.updateProjectionMatrix(); updateSizeUniform(); lastUserT = tNow;
+}, { passive: true });
+addEventListener('contextmenu', e => e.preventDefault());
+
+function updateSizeUniform() {
+  const z = Math.tan(31 * Math.PI / 180) / Math.tan(camera.fov * 0.5 * Math.PI / 180);
+  starUniforms.uSize.value = PR * 1.7 * z;
+  fogUniforms.uSizeF.value = PR * z;
+}
+updateSizeUniform();
+
+// ═══════════════ 星をタップ → 情報カード ═══════════════
+const card = $('card');
+let cardTimer = 0;
+function pickStar(px, py) {
+  if (mode === 'history') return; // 歴史モード中は地球観賞に集中
+  const ndc = new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1);
+  const ray = new THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
+  let best = -1, bestScore = 1e9, bestAng = 1e9;
+  for (let i = 0; i <= nReal; i++) { // 実在星＋太陽
+    const dx = pos[i * 3] - camera.position.x, dy = pos[i * 3 + 1] - camera.position.y, dz = pos[i * 3 + 2] - camera.position.z;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 0.25) continue; // 目の前すぎる星は対象外
+    const dot = (dx * ray.x + dy * ray.y + dz * ray.z) / len;
+    if (dot < 0.996) continue;
+    const ang = Math.acos(Math.min(1, dot));
+    const score = ang * (1 + 0.13 * (mag[i] + 1.5));
+    if (score < bestScore) { bestScore = score; best = i; bestAng = ang; }
+  }
+  const limit = 0.045 * camera.fov / 62;
+  if (best < 0 || bestAng > limit) { card.classList.remove('show'); return; }
+  if (best === nSun) { // 太陽
+    const dly = camera.position.length() * 3.2616;
+    card.innerHTML = `<div class="n" style="color:#ffe9b0">太陽 ─ 私たちの母星</div>
+      <div class="s">Sol ／ 地球はこの光のすぐ隣（遠すぎて見えない小ささ）</div>
+      <div class="d">いまのあなたから ${dly.toFixed(1)}光年</div>
+      <div class="y">人類の歴史のすべては、この小さな光のまわりで起きました</div>`;
+    card.classList.add('show');
+    clearTimeout(cardTimer);
+    cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
+    return;
+  }
+  const s = D.stars[best];
+  const conJp = s[5] >= 0 ? (JP_CON[D.cons[s[5]]] || D.cons[s[5]]) : '';
+  const proper = D.names[best];
+  const name = proper ? (JP_STAR[proper] || proper) : (conJp ? conJp + 'の星' : '名もなき星');
+  const sub = proper ? `${proper}${conJp ? ' ／ ' + conJp : ''}` : 'HYG星表 (実在の星)';
+  const r = Math.sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+  const ly = r * 3.2616;
+  let dTxt, yTxt;
+  if (r > 1950) { dTxt = '距離 非常に遠い（正確な距離は未測定）'; yTxt = 'はるか昔に星を発った光です'; }
+  else {
+    dTxt = `地球から ${ly < 100 ? ly.toFixed(1) : Math.round(ly).toLocaleString()}光年 ・ ${s[3].toFixed(1)}等星`;
+    const year = Math.round(2026 - ly);
+    yTxt = year >= 0 ? `いま見えている光は 西暦${year}年 に星を発ちました`
+                     : `いま見えている光は 紀元前${1 - year}年 に星を発ちました`;
+  }
+  const c = bvToRGB(s[4]);
+  card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${name}</div>
+    <div class="s">${sub}</div><div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
+  card.classList.add('show');
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
+}
+
+// ═══════════════ UI ═══════════════
+let uiWakeT = 0;
+function wakeUI() {
+  uiWakeT = tNow;
+  $('ui').classList.remove('fade'); $('stats').classList.remove('fade'); $('pos').classList.remove('fade');
+}
+$('bFull').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+  wakeUI();
+};
+$('bCons').onclick = () => { consLines.visible = !consLines.visible; $('bCons').classList.toggle('on', consLines.visible); wakeUI(); };
+$('bHome').onclick = () => {
+  if (mode === 'history') exitHistory();
+  (mode === 'gaze') ? exitGaze() : enterGaze();
+  lastUserT = tNow; wakeUI();
+};
+function exitHistory() { mode = 'orbit'; $('bHist').classList.remove('on'); $('era').classList.remove('show'); }
+$('bHist').onclick = () => { // 地球46億年の旅
+  if (mode === 'history') { exitHistory(); }
+  else {
+    if (mode === 'gaze') exitGaze();
+    mode = 'history';
+    $('bHist').classList.add('on'); $('era').classList.add('show');
+    card.classList.remove('show'); panelEl.classList.remove('open');
+    histP = 0; eraIdx = -1; // いつも「誕生」から始まる
+  }
+  lastUserT = tNow; wakeUI();
+};
+
+// ═══════════════ 癒しの環境音（生成式・音源ファイル不要） ═══════════════
+let snd = null;
+function startSound() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 4);
+  // 深宇宙のドローン（低い音がゆっくり呼吸する）
+  [55, 82.41, 110.0].forEach((fq, i) => {
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fq;
+    const g = ctx.createGain(); g.gain.value = 0.05;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.02 + i * 0.013;
+    const lg = ctx.createGain(); lg.gain.value = 0.032;
+    lfo.connect(lg); lg.connect(g.gain);
+    o.connect(g); g.connect(master); o.start(); lfo.start();
+  });
+  // 星のきらめき（ときどき遠くで鈴のような音・宇宙の残響つき）
+  const dly = ctx.createDelay(2.0); dly.delayTime.value = 0.55;
+  const fb = ctx.createGain(); fb.gain.value = 0.42;
+  const dfl = ctx.createBiquadFilter(); dfl.type = 'lowpass'; dfl.frequency.value = 1600;
+  dly.connect(fb); fb.connect(dfl); dfl.connect(dly);
+  dly.connect(master);
+  const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+  let bellTimer = 0;
+  const bell = () => {
+    if (!snd) return;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.value = PENTA[(Math.random() * PENTA.length) | 0] * (Math.random() < 0.3 ? 0.5 : 1);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 5);
+    o.connect(g); g.connect(master); g.connect(dly);
+    o.start(); o.stop(ctx.currentTime + 5.2);
+    bellTimer = setTimeout(bell, 3500 + Math.random() * 9000);
+  };
+  bellTimer = setTimeout(bell, 2500);
+  snd = { ctx, stop: () => { clearTimeout(bellTimer); master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8); setTimeout(() => ctx.close(), 1000); } };
+}
+$('bSnd').onclick = () => {
+  if (snd) { snd.stop(); snd = null; $('bSnd').classList.remove('on'); }
+  else { startSound(); $('bSnd').classList.add('on'); }
+  wakeUI();
+};
+$('bBH').onclick = () => { // BHモード（隠し機能）：押した人だけ超早回しの銀河が始まる
+  bhOn = !bhOn;
+  $('bBH').classList.toggle('on', bhOn);
+  $('stats').style.display = bhOn ? '' : 'none';
+  nbPoints.visible = bhOn;
+  if (bhOn) {
+    if (!bhSeeded) { bhSeeded = true; for (let i = 0; i < 60; i++) spawnStar(); }
+    seekingBH = true; lastUserT = -20;
+  } else seekingBH = false;
+  wakeUI();
+};
+
+// 星座図鑑：検索 → 地球の夜空モードでその星座へ・ハイライト・紹介カード
+let hlTimer = 0;
+function selectCon(ci) {
+  consLines.visible = true; $('bCons').classList.add('on');
+  const segs = conSegs[ci];
+  const arr = new Float32Array(segs.length * 3);
+  for (let i = 0; i < segs.length; i++) {
+    const s = D.stars[segs[i]];
+    arr[i * 3] = s[0]; arr[i * 3 + 1] = s[1]; arr[i * 3 + 2] = s[2];
+  }
+  hlGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  hlLines.visible = true;
+  consLines.material.opacity = 0.10;
+  clearTimeout(hlTimer);
+  hlTimer = setTimeout(() => { hlLines.visible = false; consLines.material.opacity = 0.28; }, 30000);
+  enterGaze();
+  seekCon = ci; seekingBH = false; lastUserT = -20;
+  const abbr = D.cons[ci];
+  const bright = conBrightest(ci);
+  card.innerHTML = `<div class="n" style="color:#bcd4ff">${JP_CON[abbr] || abbr}</div>
+    <div class="s">${abbr} ／ ${conSeason(ci)}</div>
+    <div class="d">${CON_INFO[abbr] || ''}</div>` +
+    (bright ? `<div class="y">いちばん明るい星: ${bright}</div>` : '');
+  card.classList.add('show');
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => card.classList.remove('show'), 12000);
+}
+const panelEl = $('panel');
+{
+  const list = $('panelList');
+  const order = D.cons.map((a, i) => i).sort((x, y) => (JP_CON[D.cons[x]] || '').localeCompare(JP_CON[D.cons[y]] || '', 'ja'));
+  for (const i of order) {
+    const b = document.createElement('button');
+    b.textContent = JP_CON[D.cons[i]] || D.cons[i];
+    b.onclick = () => { panelEl.classList.remove('open'); selectCon(i); };
+    list.appendChild(b);
+  }
+}
+$('bFind').onclick = () => { panelEl.classList.toggle('open'); wakeUI(); };
+$('panelClose').onclick = () => panelEl.classList.remove('open');
+
+// ═══════════════ メインループ ═══════════════
+let tNow = 0, lastT = performance.now(), spawnAcc = 0, statT = 0, simT = 0;
+window.__uchuStarted = true;
+window.__U = { starUniforms, camera, postUni, sim: SIM, advanceSim: s => advanceSim(s),
+  setCam: (th, ph) => { camTh = th; camPh = ph; lastUserT = tNow; },
+  pickCenter: () => pickStar(innerWidth / 2, innerHeight / 2),
+  hist: p => { histP = p; eraIdx = -1; }, // 動作確認用：歴史の時点ジャンプ
+  getMode: () => mode,
+  dbg: () => ({ seeking: seekingBH, camTh: +camTh.toFixed(2), camPh: +camPh.toFixed(2), camR: +camR.toFixed(1), simT: +simT.toFixed(1), bhMass,
+    nb: nb.length, born, gone, doomed: nb.filter(s => s.doom).length,
+    bh: bhWorld.toArray().map(v => +v.toFixed(1)), uOn: +postUni.uOn.value.toFixed(2) }),
+  dist: () => { const ds = nb.map(s => s.p.distanceTo(bhWorld)).sort((a, b) => a - b); const q = f => +ds[Math.min(ds.length - 1, (ds.length * f) | 0)].toFixed(1); return { min: q(0), p25: q(0.25), med: q(0.5), p75: q(0.75), max: q(0.99) }; },
+  bench: n => { // 動作確認用：1コマの描画にかかる時間(ms)を実測
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) {
+      renderer.setRenderTarget(rt); renderer.render(scene, camera);
+      renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+    }
+    renderer.getContext().finish();
+    return ((performance.now() - t0) / n).toFixed(2) + ' ms/frame';
+  },
+  testPick: name => { // 動作確認用：名前で星を画面座標に変換してタップを再現
+    for (const [i, n] of Object.entries(D.names)) if (n === name) {
+      const s = D.stars[i];
+      const p = new THREE.Vector3(s[0], s[1], s[2]).project(camera);
+      if (p.z > 1) return 'behind';
+      const px = (p.x + 1) / 2 * innerWidth, py = (-p.y + 1) / 2 * innerHeight;
+      pickStar(px, py); return [px | 0, py | 0];
+    }
+    return 'not found';
+  } };
+setTimeout(() => $('splash').classList.add('fade'), 3500);
+
+// ブラックホールはゆっくり夜空を旅する
+function updateBH() {
+  const baz = simT * 0.010 + 1.3 * Math.sin(simT * 0.0093);
+  const bel = 0.55 * Math.sin(simT * 0.0061) + 0.28 * Math.sin(simT * 0.017);
+  const brad = 26 + 6 * Math.sin(simT * 0.004);
+  bhWorld.set(Math.cos(bel) * Math.cos(baz), Math.cos(bel) * Math.sin(baz), Math.sin(bel)).multiplyScalar(brad);
+}
+
+// 宇宙の時間を進める（通常は1コマぶん・検証やタイムラプスではまとめて）
+function advanceSim(sec) {
+  let rem = sec;
+  while (rem > 1e-6) {
+    const st = Math.min(rem, 0.05); rem -= st;
+    simT += st; updateBH();
+    if (!bhOn) { spawnAcc = 0; continue; } // BHモードOFF中は銀河の営みも休止
+    spawnAcc += st;
+    while (spawnAcc > 1.2) { spawnAcc -= 1.2; if (nb.length < NB_MAX) spawnStar(); else doomOldest(); } // 満員なら誕生の代わりに古い星が落ちる
+    updateNewborn(st);
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now; tNow = now / 1000;
+  const t = tNow;
+
+  advanceSim(dt * SIM.speed);
+  writeNbBuffers();
+  flash *= Math.pow(0.03, Math.max(dt, dt * SIM.speed)); // 閃光の減衰
+
+  // カメラ
+  const idle = Math.min(1, Math.max(0, (t - lastUserT - 8) / 8));
+  if (mode === 'orbit') {
+    // ── 宇宙遊泳：フリックで長く滑り、放っておくとランダムな向き・速さで漂い続ける ──
+    if (seekingBH && bhOn) {
+      const bd = bhWorld.clone().normalize().negate(); // BHの反対側へ回り込み、中心越しにBHを見る
+      const tTh = Math.atan2(bd.y, bd.x), tPh = Math.acos(Math.max(-1, Math.min(1, bd.z)));
+      let dTh = tTh - camTh;
+      while (dTh > Math.PI) dTh -= Math.PI * 2;
+      while (dTh < -Math.PI) dTh += Math.PI * 2;
+      camTh += dTh * Math.min(1, dt * 2.2); camPh += (tPh - camPh) * Math.min(1, dt * 2.2);
+      if (Math.abs(dTh) < 0.02 && Math.abs(tPh - camPh) < 0.02) { seekingBH = false; lastUserT = tNow; }
+      vTh = 0; vPh = 0;
+    } else {
+      if (t > wanderNext) { // 数秒ごとに新しいランダムな向き・速さへ切り替え続ける
+        wanderNext = t + 5 + Math.random() * 9;
+        const sp = 0.04 + Math.random() * 0.11;
+        wTh = sp * (Math.random() < 0.72 ? Math.sign(wTh || 1) : -Math.sign(wTh || 1));
+        wPh = (Math.random() - 0.5) * 0.10;
+      }
+      const damp = Math.pow(0.90, dt); // フリックの慣性は長く滑る
+      vTh *= damp; vPh *= damp;
+      vTh += (wTh - vTh) * Math.min(1, dt * 0.4) * idle;
+      vPh += (wPh - vPh) * Math.min(1, dt * 0.4) * idle;
+      camTh += vTh * dt; camPh += vPh * dt;
+      if (camPh < 0.15 || camPh > Math.PI - 0.15) {
+        camPh = Math.max(0.15, Math.min(Math.PI - 0.15, camPh)); vPh *= -0.6; wPh *= -1;
+      }
+    }
+    // 楕円軌道の呼吸：進むほど半径も変わり、星々が立体的に流れる
+    rPhase += dt * (0.1 + Math.min(1.5, Math.abs(vTh) + Math.abs(vPh)) * 0.8);
+    const tR = Math.max(2.5, 13 + 9 * Math.sin(rPhase * 0.31) + 5 * Math.sin(rPhase * 0.113 + 2));
+    gazeR += (tR - gazeR) * Math.min(1, dt * 1.5);
+    camR = gazeR;
+    const sph = Math.sin(camPh);
+    camera.position.set(camR * sph * Math.cos(camTh), camR * sph * Math.sin(camTh), camR * Math.cos(camPh));
+    camera.lookAt(0, 0, 0);
+  } else if (mode === 'history') {
+    // ── 歴史モード：地球の傍らで46億年を眺める ──
+    updateHistory(dt);
+    camera.position.set(0, 0, 0.001);
+    camera.quaternion.copy(hCam.quaternion); // 背景の星空はhCamの向きと同期
+  } else {
+    // ── 地球の夜空：太陽の位置に降りて、地上と同じ本物の空を見回す ──
+    gazeR += (0.02 - gazeR) * Math.min(1, dt * 1.2);
+    camR = gazeR;
+    let target = null;
+    if (seekingBH && bhOn) target = bhWorld.clone().normalize();
+    else if (seekCon >= 0) target = conDir[seekCon];
+    if (target) {
+      const tLon = Math.atan2(target.y, target.x), tLat = Math.asin(Math.max(-1, Math.min(1, target.z)));
+      let dLon = tLon - gazeLon;
+      while (dLon > Math.PI) dLon -= Math.PI * 2;
+      while (dLon < -Math.PI) dLon += Math.PI * 2;
+      gazeLon += dLon * Math.min(1, dt * 2.2); gazeLat += (tLat - gazeLat) * Math.min(1, dt * 2.2);
+      if (Math.abs(dLon) < 0.02 && Math.abs(tLat - gazeLat) < 0.02) { seekingBH = false; seekCon = -1; lastUserT = tNow; }
+    } else {
+      vgLon *= Math.pow(0.85, dt); vgLat *= Math.pow(0.85, dt);
+      gazeLon += vgLon * dt + 0.006 * dt * idle; // ゆっくり空が流れる
+      gazeLat += vgLat * dt;
+      gazeLat = Math.max(-1.5, Math.min(1.5, gazeLat));
+    }
+    const sph = Math.sin(camPh);
+    camera.position.set(camR * sph * Math.cos(camTh), camR * sph * Math.sin(camTh), camR * Math.cos(camPh));
+    camera.lookAt(
+      camera.position.x + Math.cos(gazeLat) * Math.cos(gazeLon),
+      camera.position.y + Math.cos(gazeLat) * Math.sin(gazeLon),
+      camera.position.z + Math.sin(gazeLat));
+  }
+  updateApparentMags();
+
+  // ブラックホールの画面位置をシェーダーへ
+  const vp = bhWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+  let onT = 0;
+  if (bhOn && mode !== 'history' && vp.z < -0.5) {
+    const pj = bhWorld.clone().project(camera);
+    const W = innerWidth * PR, H = innerHeight * PR;
+    const bx = (pj.x + 1) / 2 * W, by = (pj.y + 1) / 2 * H;
+    if (bx > -W * 0.6 && bx < W * 1.6 && by > -H * 0.6 && by < H * 1.6) {
+      postUni.uBH.value.set(bx, by);
+      postUni.uRpx.value = RS_WORLD * Math.cbrt(bhMass / 900) / vp.length() * (H * 0.5 / Math.tan(camera.fov * 0.5 * Math.PI / 180));
+      onT = 1;
+    }
+  }
+  postUni.uOn.value += (onT - postUni.uOn.value) * Math.min(1, dt * 3);
+  postUni.uFlash.value = flash;
+  postUni.uTime.value = t;
+  starUniforms.uTime.value = t;
+
+  // カウンター表示（0.3秒ごと）
+  if (t - statT > 0.3) {
+    statT = t;
+    $('nBorn').textContent = born.toLocaleString();
+    $('nGone').textContent = gone.toLocaleString();
+    // 現在地表示：太陽からの距離と最寄りの星
+    if (mode === 'history') {
+      $('pos').textContent = '⏳ 地球と月の46億年 ─ ドラッグで見回す';
+    } else if (mode === 'gaze') {
+      $('pos').textContent = '🌍 地球の夜空 ─ いま地上で見えるままの空';
+    } else {
+      let ni = -1, nd2 = 1e18;
+      const cp = camera.position;
+      for (let i = 0; i < nReal; i++) {
+        const dx = pos[i * 3] - cp.x, dy = pos[i * 3 + 1] - cp.y, dz = pos[i * 3 + 2] - cp.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < nd2) { nd2 = d2; ni = i; }
+      }
+      const p = D.names[ni];
+      const nName = p ? (JP_STAR[p] || p) : (D.stars[ni][5] >= 0 ? (JP_CON[D.cons[D.stars[ni][5]]] || '') + 'の星' : '名もなき星');
+      $('pos').textContent = `太陽から ${(cp.length() * 3.2616).toFixed(0)}光年 ／ 最寄り ${nName} ${(Math.sqrt(nd2) * 3.2616).toFixed(1)}光年`;
+    }
+    if (t - uiWakeT > 7 && uiWakeT > 0) { $('ui').classList.add('fade'); $('stats').classList.add('fade'); $('pos').classList.add('fade'); }
+  }
+
+  renderer.setRenderTarget(rt);
+  renderer.clear();
+  renderer.render(scene, camera);
+  if (mode === 'history') { renderer.clearDepth(); renderer.render(hScene, hCam); }
+  renderer.setRenderTarget(null);
+  renderer.render(postScene, postCam);
+}
+bhWorld.set(26, 0, 0); // BHの初期位置（モードONにした瞬間から銀河が育ち始める）
+wakeUI();
+requestAnimationFrame(loop);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  hCam.aspect = innerWidth / innerHeight;
+  hCam.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  rt.setSize(innerWidth * PR, innerHeight * PR);
+  postUni.uRes.value.set(innerWidth * PR, innerHeight * PR);
+});
+</script>
+</body>
+</html>
