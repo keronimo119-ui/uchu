@@ -31,6 +31,12 @@
     display:flex; align-items:center; justify-content:center; flex-direction:column; }
   #ui button .ic { font-size:19px; }
   #ui button.on { background:rgba(70,110,255,.4); border-color:rgba(180,200,255,.8); color:#fff; }
+  /* 横画面（低い画面）ではボタンを小さくして8個全部おさめる */
+  @media (max-height: 520px) {
+    #ui { gap:6px; }
+    #ui button { width:38px; height:38px; font-size:9px; line-height:1.05; }
+    #ui button .ic { font-size:13px; }
+  }
 
   /* 誕生・消滅カウンター */
   #stats { position:fixed; left:calc(12px + env(safe-area-inset-left));
@@ -45,7 +51,7 @@
     border-radius:14px; padding:13px 22px; text-align:center; z-index:30;
     opacity:0; pointer-events:none; transition:opacity .5s ease;
     backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); max-width:82vw; }
-  #card.show { opacity:1; }
+  #card.show { opacity:1; pointer-events:auto; cursor:pointer; } /* 表示中はタップで閉じられる */
   #card .n  { font-size:21px; letter-spacing:0.15em; margin-bottom:3px; }
   #card .s  { color:#93a5d6; font-size:12px; letter-spacing:0.1em; }
   #card .d  { color:#c3cfF2; color:#c3cff2; font-size:13px; margin-top:7px; }
@@ -95,7 +101,7 @@
 
   #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     color:#ffb0a0; font-size:15px; z-index:99; text-align:center; padding:0 30px; }
-  .fade { opacity:0 !important; }
+  .fade { opacity:0 !important; pointer-events:none !important; } /* 消えている間は触れない(見えないボタン誤タップ防止) */
 </style>
 </head>
 <body>
@@ -835,6 +841,8 @@ const T_GAP = 120;                       // 駅の間隔
 let tourIdx = 0, tTh = 2.4, tPh = 1.35;  // いまの駅・周回カメラの方位/仰角
 let tourX = 0, tourD = 4, flyFromX = 0, flyFromIdx = 0, flyT = 9; const FLY_DUR = 1.2; // 駅間の飛行
 let tourVX = 0, tourVY = 0, tourMoveT = 0; // フリック判定用の指の速度(px/ms・平滑)
+let tourWide = false, wideT = 0, wideSel = -1; // 引き(ぜんたい)ビュー：縦フリックで行き来。wideSel=タップ選択中の星
+const WIDE_S = [16.7, 4.5, 2.6, 3.6, 9.0, 8.0]; // 引きの大きさ=球とわかる見た目重視のイメージ(大小の順序は本物のまま)
 const tourBodies = [];                   // 順に本物へ置き換え中（残りの仮球=太陽/火星/木星/土星）
 const T_SUN_DIR = new THREE.Vector3(-1, 0, 0); // 照明は全駅共通で「-X=太陽の方向」（駅配置と一致・実質正しい）
 function tourStation(i, name, mesh, tiltDeg, spinHours, dist) {
@@ -843,7 +851,7 @@ function tourStation(i, name, mesh, tiltDeg, spinHours, dist) {
   grp.rotation.z = -tiltDeg * Math.PI / 180;   // 実際の自転軸の傾き
   grp.add(mesh); tScene.add(grp);
   // 自転は実周期の3600倍速(1時間=1秒)。spin[rad/s] = 2π/周期(時間)
-  tourBodies[i] = { name, grp, spinMesh: mesh, spin: 2 * Math.PI / spinHours, dist };
+  tourBodies[i] = { name, grp, spinMesh: mesh, spin: 2 * Math.PI / spinHours, dist, stationX: i * T_GAP };
 }
 const tmpBall = colr => new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new THREE.MeshBasicMaterial({ color: colr }));
 { // 太陽：粒状斑(対流のつぶつぶ・実周期でゆっくり湧き変わる)+周縁減光(実現象:フチほど暗く赤い)+コロナ
@@ -858,27 +866,90 @@ const tmpBall = colr => new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new 
       void main(){
         vec3 n = normalize(vN);
         vec3 p = normalize(vObj);
-        float g = fbm(p*9.0 + vec3(0.0, uTime*0.015, uTime*0.011));   // 粒状斑(大きな対流)
-        float g2 = vnoise(p*24.0 + vec3(uTime*0.03));                  // 細かいつぶつぶ
-        vec3 col = mix(vec3(1.0,0.45,0.08), vec3(1.0,0.93,0.72), smoothstep(0.25,0.75,g)*0.8 + g2*0.2);
+        float g = fbm(p*9.0 + vec3(0.0, uTime*0.03, uTime*0.022));    // 粒状斑(大きな対流・うねり速め)
+        float g2 = vnoise(p*24.0 + vec3(uTime*0.06));                  // 細かいつぶつぶ
+        float heat = smoothstep(0.3, 0.72, g)*0.85 + g2*0.15;          // 暗い赤と燃える黄のコントラスト
+        vec3 col = mix(vec3(0.62,0.06,0.01), vec3(1.0,0.78,0.30), heat);
+        col += vec3(1.0,0.35,0.05) * pow(heat, 3.0) * 0.6;             // 燃え上がる芯
         vec3 vDir = normalize(cameraPosition - vW);
         float mu = clamp(dot(n, vDir), 0.0, 1.0);
         float limb = 0.35 + 0.65*pow(mu, 0.6);                         // 周縁減光
-        col = mix(col*vec3(1.0,0.55,0.3), col, limb) * (0.75 + 0.45*limb);
+        col = mix(col*vec3(1.0,0.35,0.15), col, limb) * (0.7 + 0.5*limb);
         gl_FragColor = vec4(col*1.25, 1.0);
       }`
   }));
   tourStation(0, '太陽', sm, 7.25, 609.1, 4.0);
-  const cor1 = glowSprite(255, 210, 140, 7.0, 7.0, 0.55, 0.18); // 外側の淡いコロナ
-  const cor2 = glowSprite(255, 240, 210, 3.4, 3.4, 0.8, 0.3);   // 内側の明るいにじみ
+  const cor1 = glowSprite(255, 110, 40, 7.5, 7.5, 0.6, 0.16);  // 外側の赤いコロナ(燃えてる感)
+  const cor2 = glowSprite(255, 170, 80, 3.6, 3.6, 0.85, 0.28); // 内側のオレンジのにじみ
   tourBodies[0].grp.add(cor1); tourBodies[0].grp.add(cor2);
 }
-{ // 地球・月は歴史モードのシェーダーを流用（マテリアル複製＝歴史モードへ影響なし・現在の姿）
-  const em = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), earthMesh.material.clone());
-  em.material.uniforms.uSunDir.value.copy(T_SUN_DIR);
+{ // 地球・月はNASA由来の実写マップ(tex/にローカル同梱・オフラインOK)+シェーダーで
+  // 動く雲・海の太陽の照り返し・青い大気のフチ・夕焼けの帯・夜の街あかりを重ねる
+  const SPHERE_VERT_UV = `
+    varying vec3 vN; varying vec3 vObj; varying vec3 vW; varying vec2 vUv;
+    void main(){
+      vObj = position; vUv = uv;
+      vN = normalize(mat3(modelMatrix) * normal);
+      vec4 w = modelMatrix * vec4(position, 1.0);
+      vW = w.xyz;
+      gl_Position = projectionMatrix * viewMatrix * w;
+    }`;
+  const texLoader = new THREE.TextureLoader();
+  const tDay = texLoader.load('tex/earth_day.jpg');
+  const tOcean = texLoader.load('tex/earth_ocean.jpg'); // 海=白のマスク(照り返し用)
+  const tMoon = texLoader.load('tex/moon.jpg');
+  tDay.anisotropy = 4; tMoon.anisotropy = 4;
+  const em = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({
+    uniforms: { tDay: { value: tDay }, tOcean: { value: tOcean }, uSunDir: { value: T_SUN_DIR.clone() }, uTime: { value: 0 } },
+    vertexShader: SPHERE_VERT_UV,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D tDay, tOcean;
+      uniform vec3 uSunDir; uniform float uTime;
+      varying vec3 vN; varying vec3 vObj; varying vec3 vW; varying vec2 vUv;
+      ${NOISE_GLSL}
+      void main(){
+        vec3 n = normalize(vN);
+        vec3 p = normalize(vObj);
+        vec3 day = texture2D(tDay, vUv).rgb;              // 本物の大陸と海
+        float ocean = texture2D(tOcean, vUv).r;           // 海マスク
+        float ndl = clamp(dot(n, uSunDir), 0.0, 1.0);
+        float cl = smoothstep(0.52, 0.74, fbm(p*3.5 + vec3(uTime*0.012, 0.0, uTime*0.008))); // 流れる雲
+        vec3 col = mix(day, vec3(0.99), cl*0.8);
+        vec3 vDir = normalize(cameraPosition - vW);
+        vec3 hf = normalize(uSunDir + vDir);              // 海の太陽の照り返し(ぎらつき)
+        col += vec3(1.0,0.95,0.8) * pow(clamp(dot(n,hf),0.0,1.0), 48.0) * ocean * (1.0-cl*0.8) * 0.55;
+        col *= (0.03 + 1.08*ndl);
+        float city = pow(vnoise(p*40.0), 8.0) * 5.0;      // 夜側の街あかり(陸だけ・控えめ)
+        col += vec3(1.0,0.8,0.45) * clamp(city,0.0,1.0) * (1.0-ocean) * pow(1.0-ndl,3.0) * 0.8 * (1.0-cl);
+        float rim = pow(1.0 - clamp(dot(n,vDir),0.0,1.0), 2.5);  // 青い大気のフチ
+        float dayside = smoothstep(-0.12, 0.25, dot(n, uSunDir));
+        col += vec3(0.30,0.50,1.0) * rim * (0.10 + 0.55*dayside);
+        float tw = pow(1.0 - abs(dot(n,uSunDir)), 6.0) * rim;    // 昼夜の境の夕焼けの帯
+        col += vec3(1.0,0.45,0.2) * tw * 0.35;
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  }));
   tourStation(1, '地球', em, 23.4, 23.93, 3.2);
-  const mm = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), moonMesh.material.clone());
-  mm.material.uniforms.uSunDir.value.copy(T_SUN_DIR);
+  const mm = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), new THREE.ShaderMaterial({
+    uniforms: { tMoon: { value: tMoon }, uSunDir: { value: T_SUN_DIR.clone() } },
+    vertexShader: SPHERE_VERT_UV,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D tMoon;
+      uniform vec3 uSunDir;
+      varying vec3 vN; varying vec3 vObj; varying vec3 vW; varying vec2 vUv;
+      void main(){
+        vec3 n = normalize(vN);
+        vec3 col = texture2D(tMoon, vUv).rgb;             // 本物の海(マリア)とクレーター
+        float ndl = clamp(dot(n, uSunDir), 0.0, 1.0);
+        col *= (0.015 + 1.18*pow(ndl, 1.15));             // 影の際を柔らかく
+        vec3 vDir = normalize(cameraPosition - vW);
+        float rim = pow(1.0 - clamp(dot(n,vDir),0.0,1.0), 3.0);
+        col *= 1.0 - rim*0.25;                            // フチをすっと落とす(大気なし感)
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  }));
   tourStation(2, '月', mm, 6.7, 655.7, 3.2); // 自転27.3日=公転と同じ(潮汐ロック)
 }
 { // 火星：赤い大地(暗い玄武岩と明るい砂)+白い極冠+ごく薄いピンクの大気
@@ -987,6 +1058,36 @@ const tmpBall = colr => new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), new 
   ring.rotation.x = -Math.PI / 2; // 赤道面に寝かせる（軸傾斜はグループ側=本体と一緒に傾く）
   tourBodies[5].grp.add(ring);
 }
+
+// ぜんたい(軌道図)ビュー: 太陽を中心に、実周期の比で回る軌道配置（1地球年=120秒の早回し）
+// 軌道半径rは見た目用に縮めたイメージ。回る速さの比(T=年)と「月は地球のまわり」は本物どおり。
+const ORB_VIEW = [null,
+  { r: 110, a0: 0.8, T: 1.0 },                 // 地球
+  { r: 13,  a0: 2.0, T: 0.0748, around: 1 },   // 月(地球のまわりを実比=約13倍速で回る)
+  { r: 152, a0: 2.6, T: 1.88 },                // 火星
+  { r: 210, a0: 4.3, T: 11.86 },               // 木星
+  { r: 268, a0: 5.6, T: 29.46 }];              // 土星
+const _ov = new THREE.Vector3();
+function orbPos(i, out) { // ぜんたいビューでの天体位置（XZ面の円軌道）
+  const ov = ORB_VIEW[i];
+  if (!ov) return out.set(0, 0, 0);
+  const a = ov.a0 + Math.PI * 2 * tNow / (ov.T * 120);
+  out.set(Math.cos(a) * ov.r, 0, Math.sin(a) * ov.r);
+  if (ov.around !== undefined) { orbPos(ov.around, _ov); out.add(_ov); }
+  return out;
+}
+const orbitRings = [];
+for (let i = 0; i < ORB_VIEW.length; i++) {
+  const ov = ORB_VIEW[i];
+  if (!ov) continue;
+  const pts = [];
+  for (let k = 0; k <= 96; k++) { const a = k / 96 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * ov.r, 0, Math.sin(a) * ov.r)); }
+  const rg = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x8fa8d8, transparent: true, opacity: 0 }));
+  rg.visible = false;
+  tScene.add(rg);
+  orbitRings.push({ rg, ov });
+}
 // 紹介カード（実データ: 大きさ・太陽からの距離・ひとこと）
 const TOUR_INFO = [
   { col: '#ffe9b0', t: '太陽 ─ すべての光のふるさと', s: '直径は地球の109倍 ／ 表面約5,500℃',
@@ -1002,8 +1103,8 @@ const TOUR_INFO = [
   { col: '#f0dfae', t: '土星 ─ 環をまとう星', s: '直径は地球の9.4倍 ／ 環の正体は無数の氷のかけら',
     d: '太陽から 14億3400万km', y: 'あの環、幅は27万kmもあるのに厚さはわずか数十メートルです' }
 ];
-function tourCard() {
-  const c = TOUR_INFO[tourIdx];
+function tourCard(bi) {
+  const c = TOUR_INFO[bi === undefined ? tourIdx : bi];
   card.innerHTML = `<div class="n" style="color:${c.col}">${c.t}</div>
     <div class="s">${c.s}</div><div class="d">${c.d}</div><div class="y">${c.y}</div>`;
   card.classList.add('show');
@@ -1016,13 +1117,13 @@ function tourGo(i) { // 隣の駅へ飛ぶ（端はループ：土星の次は�
   const w = ((i % n) + n) % n;
   if (w === tourIdx) return;
   flyFromX = tourX; flyFromIdx = tourIdx; tourIdx = w; flyT = 0;
-  if (i >= n) { tourBodies[w].grp.position.x = n * T_GAP; flyToX = n * T_GAP; }       // 右端越え→仮駅を先に置く
-  else if (i < 0) { tourBodies[w].grp.position.x = -T_GAP; flyToX = -T_GAP; }         // 左端越え→仮駅を後ろに置く
+  if (i >= n) { tourBodies[w].stationX = n * T_GAP; flyToX = n * T_GAP; }       // 右端越え→仮駅を先に置く
+  else if (i < 0) { tourBodies[w].stationX = -T_GAP; flyToX = -T_GAP; }         // 左端越え→仮駅を後ろに置く
   else flyToX = w * T_GAP;
   card.classList.remove('show'); // 飛行中はカードを消す
 }
 function tourArrived() { // 到着：仮駅を正規位置へ戻し（カメラと同時に動くので見た目は不変）、紹介カード
-  tourBodies[tourIdx].grp.position.x = tourIdx * T_GAP;
+  tourBodies[tourIdx].stationX = tourIdx * T_GAP;
   tourX = tourIdx * T_GAP;
   tourCard();
 }
@@ -1042,25 +1143,44 @@ function updateTour(dt) {
     tTh += dt * 0.02 * ti;
     tPh += (1.35 + Math.sin(tNow * 0.10) * 0.14 - tPh) * Math.min(1, dt * 0.25) * ti;
   }
-  // 表示は現在の天体（+飛行中は出発元）だけ＝正規化サイズ同士が同時に見えて嘘にならないように
+  // 引き(ぜんたい)ビューとの行き来はなめらかにブレンド
+  wideT += ((tourWide ? 1 : 0) - wideT) * Math.min(1, dt * 2.2);
+  const wv = wideT * wideT * (3 - 2 * wideT);
+  // 表示: 通常は現在の天体だけ(正規化サイズ同士の嘘を見せない)。引き中は全員=軌道図の配置へブレンド
   for (let i = 0; i < tourBodies.length; i++) {
-    const b2 = tourBodies[i], vis = (i === tourIdx) || (flyT < FLY_DUR && i === flyFromIdx);
+    const b2 = tourBodies[i], vis = wv > 0.04 || (i === tourIdx) || (flyT < FLY_DUR && i === flyFromIdx);
     b2.grp.visible = vis;
+    b2.grp.scale.setScalar(1 + (WIDE_S[i] - 1) * wv);
+    orbPos(i, _rt); // 一直線の駅⇄軌道図の位置をなめらかに行き来
+    b2.grp.position.set(b2.stationX * (1 - wv) + _rt.x * wv, _rt.y * wv, _rt.z * wv);
     if (!vis) continue;
     b2.spinMesh.rotation.y += b2.spin * dt; // 実周期の3600倍速の自転
     const u = b2.spinMesh.material.uniforms;
     if (u && u.uTime) u.uTime.value = tNow;  // 雲などの時間アニメ
   }
+  // 軌道の輪（引き中だけ淡く表示。月の輪は地球と一緒に動く）
+  const ringsOn = wv > 0.03;
+  for (const o of orbitRings) {
+    o.rg.visible = ringsOn;
+    if (!ringsOn) continue;
+    o.rg.material.opacity = 0.32 * wv;
+    if (o.ov.around !== undefined) orbPos(o.ov.around, o.rg.position); else o.rg.position.set(0, 0, 0);
+  }
   const b = tourBodies[tourIdx];
   tourD += (b.dist - tourD) * Math.min(1, dt * 2); // 天体ごとの観賞距離へ滑らかに
-  const d = tourD, sp = Math.sin(tPh);
-  tCam.position.set(tourX + d * sp * Math.cos(tTh), d * Math.cos(tPh), d * sp * Math.sin(tTh));
-  tCam.lookAt(tourX, 0, 0);
-  // ピンチズームは星カメラのfovに比率追従（歴史モードと同じ）
-  tCam.fov = 2 * Math.atan(TCAM_FOV_K * Math.tan(camera.fov * 0.5 * Math.PI / 180)) * 180 / Math.PI;
+  // 引きの中心は太陽。距離は「一番外の軌道が画面に入る」ように画面の縦横比から計算
+  const WIDE_CX = 0;
+  const wideD = 320 / Math.max(0.15, Math.tan(37.5 * Math.PI / 180) * tCam.aspect);
+  const cx = tourX + (WIDE_CX - tourX) * wv;
+  const d = tourD + (wideD - tourD) * wv, sp = Math.sin(tPh);
+  tCam.position.set(cx + d * sp * Math.cos(tTh), d * Math.cos(tPh), d * sp * Math.sin(tTh));
+  tCam.lookAt(cx, 0, 0);
+  // ピンチズームは星カメラのfovに比率追従（歴史モードと同じ）。引き中は広角75°へ寄せる
+  const baseFov = 2 * Math.atan(TCAM_FOV_K * Math.tan(camera.fov * 0.5 * Math.PI / 180)) * 180 / Math.PI;
+  tCam.fov = baseFov + (75 - baseFov) * wv;
   tCam.updateProjectionMatrix();
 }
-function exitTour() { mode = 'orbit'; toOrbitRest(); $('bTour').classList.remove('on'); }
+function exitTour() { mode = 'orbit'; toOrbitRest(); tourWide = false; wideT = 0; wideSel = -1; $('bTour').classList.remove('on'); }
 
 // ═══════════════ カメラ ═══════════════
 // mode 'orbit' = 宇宙遊泳（常に中心を注視して楕円軌道で漂う）
@@ -1155,7 +1275,25 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId);
-  if (tapInfo && performance.now() - tapInfo.t < 450) { if (mode === 'tour') tourCard(); else pickStar(tapInfo.x, tapInfo.y); }
+  if (tapInfo && performance.now() - tapInfo.t < 450) {
+    if (mode === 'tour') {
+      if (tourWide) { // 引きビュー: タップ=その星の解説 / もう一度同じ星=接近 / 何もない所=解説を閉じる
+        let best = -1, bd = 1e9;
+        for (let i = 0; i < tourBodies.length; i++) { // 画面上でいちばん近い星を拾う(小さい星でも押しやすく)
+          _rt.setFromMatrixPosition(tourBodies[i].grp.matrixWorld).project(tCam);
+          if (_rt.z > 1) continue;
+          const dd = Math.hypot(tapInfo.x - (_rt.x + 1) / 2 * innerWidth, tapInfo.y - (-_rt.y + 1) / 2 * innerHeight);
+          if (dd < bd) { bd = dd; best = i; }
+        }
+        const bi = bd < 70 ? best : -1;
+        if (bi < 0) card.classList.remove('show');
+        else if (bi === wideSel && card.classList.contains('show')) {
+          tourWide = false; wideSel = -1;
+          if (bi === tourIdx) tourCard(); else tourGo(bi);
+        } else { wideSel = bi; tourCard(bi); }
+      } else tourCard();
+    } else pickStar(tapInfo.x, tapInfo.y);
+  }
   else if (mode === 'orbit' && pointers.size === 0) {
     const mag = Math.hypot(flickAX, flickAY);
     if (mag > 30) { // フリック確定→少しホップした奥へ超スピード直進＋フリック方向の回頭軸をセット
@@ -1168,8 +1306,13 @@ canvas.addEventListener('pointerup', e => {
     }
   }
   else if (mode === 'tour' && pointers.size === 0) {
-    // 左右フリック（速度0.9px/ms超かつ横が縦の1.5倍超）で 右=次 / 左=前 の天体へ
-    if (Math.abs(tourVX) > 0.9 && Math.abs(tourVX) > 1.5 * Math.abs(tourVY)) tourGo(tourIdx + (tourVX > 0 ? 1 : -1));
+    // 左右フリック=隣の天体へ(引き中は無効) / 縦フリック=引き(ぜんたい)ビューの行き来
+    if (Math.abs(tourVX) > 0.9 && Math.abs(tourVX) > 1.5 * Math.abs(tourVY)) {
+      if (!tourWide) tourGo(tourIdx + (tourVX > 0 ? 1 : -1));
+    } else if (Math.abs(tourVY) > 0.9 && Math.abs(tourVY) > 1.5 * Math.abs(tourVX)) {
+      tourWide = !tourWide; wideSel = -1;
+      if (tourWide) card.classList.remove('show'); else tourCard();
+    }
   }
   tapInfo = null; lastUserT = tNow; flickAX = 0; flickAY = 0;
 });
@@ -1190,6 +1333,7 @@ updateSizeUniform();
 // ═══════════════ 星をタップ → 情報カード ═══════════════
 const card = $('card');
 let cardTimer = 0;
+card.onpointerdown = () => card.classList.remove('show'); // 解説は触れた瞬間に消える(上から始めたフリックの邪魔もしない)
 function pickStar(px, py) {
   if (mode === 'history' || mode === 'tour') return; // 歴史/めぐり中は天体観賞に集中
   const ndc = new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1);
@@ -1391,7 +1535,7 @@ applySpeed($('speedR').value);
 // ═══════════════ メインループ ═══════════════
 let tNow = 0, lastT = performance.now(), spawnAcc = 0, statT = 0, simT = 0;
 window.__uchuStarted = true;
-window.__U = { starUniforms, camera, hCam, postUni, sim: SIM, advanceSim: s => advanceSim(s),
+window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: s => advanceSim(s),
   setCam: (th, ph) => { setCPos(th, ph, camR); cvel.set(0, 0, 0); lastUserT = tNow; },
   pickCenter: () => pickStar(innerWidth / 2, innerHeight / 2),
   hist: p => { histP = p; eraIdx = -1; }, // 動作確認用：歴史の時点ジャンプ
@@ -1401,7 +1545,9 @@ window.__U = { starUniforms, camera, hCam, postUni, sim: SIM, advanceSim: s => a
   histFreeze: b => { histFreeze = b; }, // 動作確認用：歴史カメラ/時代のドリフト停止
   tourJump: i => { tourGo(i); },        // 動作確認用：太陽系めぐりの駅ジャンプ
   scenes: { hScene, tScene, scene },    // 動作確認用：シーン走査（犯人探し等）
-  tourState: () => ({ idx: tourIdx, name: tourBodies[tourIdx].name, x: +tourX.toFixed(1), flying: flyT < FLY_DUR }),
+  tourWideSet: b => { tourWide = b; },  // 動作確認用：引き(ぜんたい)ビューの切替
+  tourTick: s => { updateTour(s); tScene.updateMatrixWorld(true); }, // 動作確認用：描画ループなしで1コマ進める
+  tourState: () => ({ idx: tourIdx, name: tourBodies[tourIdx].name, x: +tourX.toFixed(1), flying: flyT < FLY_DUR, wide: tourWide, wideT: +wideT.toFixed(2) }),
   planetsDbg: () => planetSprites.map(({ sp, p }) => { const v = sp.position.clone().project(hCam); return { n: p.n, nx: +v.x.toFixed(2), ny: +v.y.toFixed(2), front: v.z < 1, pos: sp.position.toArray().map(x => Math.round(x)) }; }),
   setWander: v => { wanderSpeed = v; }, // 動作確認用：遊泳速度倍率を直接指定
   wander: () => ({ wanderSpeed: +wanderSpeed.toFixed(2), roll: +roll.toFixed(3), speed: +cvel.length().toFixed(2), camR: +camR.toFixed(1), diving, cpos: cpos.toArray().map(v => +v.toFixed(1)) }),
@@ -1596,7 +1742,9 @@ function loop(now) {
     if (mode === 'history') {
       $('pos').textContent = '⏳ 地球と月の46億年 ─ ドラッグで見回す';
     } else if (mode === 'tour') {
-      $('pos').textContent = `🪐 太陽系めぐり: ${tourBodies[tourIdx].name} ─ 左右フリックで次の天体へ`;
+      $('pos').textContent = tourWide
+        ? '🪐 太陽系ぜんたい(縮めたイメージ・回る速さの比は本物) ─ 星をタップ=解説・もう一度=接近'
+        : `🪐 太陽系めぐり: ${tourBodies[tourIdx].name} ─ 左右フリック=隣へ・縦フリック=引き`;
     } else if (mode === 'gaze') {
       $('pos').textContent = '🌍 地球の夜空 ─ いま地上で見えるままの空';
     } else {
@@ -1632,6 +1780,8 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   hCam.aspect = innerWidth / innerHeight;
   hCam.updateProjectionMatrix();
+  tCam.aspect = innerWidth / innerHeight; // 太陽系めぐり用カメラ（忘れると横画面で星がつぶれる）
+  tCam.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   rt.setSize(innerWidth * PR, innerHeight * PR);
   postUni.uRes.value.set(innerWidth * PR, innerHeight * PR);
