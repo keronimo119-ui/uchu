@@ -119,7 +119,6 @@
   <button id="bHome"><span class="ic">🌍</span><span>地球</span></button>
   <button id="bHist"><span class="ic">⏳</span><span>歴史</span></button>
   <button id="bTour"><span class="ic">🪐</span><span>惑星</span></button>
-  <button id="bSnd"><span class="ic">♪</span><span>おと</span></button>
   <button id="bBH"><span class="ic">●</span><span>BH</span></button>
 </div>
 
@@ -842,6 +841,7 @@ let tourIdx = 0, tTh = 2.4, tPh = 1.35;  // いまの駅・周回カメラの方
 let tourX = 0, tourD = 4, flyFromX = 0, flyFromIdx = 0, flyT = 9; const FLY_DUR = 1.2; // 駅間の飛行
 let tourVX = 0, tourVY = 0, tourMoveT = 0; // フリック判定用の指の速度(px/ms・平滑)
 let tourWide = false, wideT = 0, wideSel = -1; // 引き(ぜんたい)ビュー：縦フリックで行き来。wideSel=タップ選択中の星
+let tourZoom = 1, tourZoom0 = 1, twNext = 0, twV = 0.04; // 引きのピンチ接近倍率と、引きのランダム漂い
 const WIDE_S = [16.7, 4.5, 2.6, 3.6, 9.0, 8.0]; // 引きの大きさ=球とわかる見た目重視のイメージ(大小の順序は本物のまま)
 const tourBodies = [];                   // 順に本物へ置き換え中（残りの仮球=太陽/火星/木星/土星）
 const T_SUN_DIR = new THREE.Vector3(-1, 0, 0); // 照明は全駅共通で「-X=太陽の方向」（駅配置と一致・実質正しい）
@@ -1083,7 +1083,7 @@ for (let i = 0; i < ORB_VIEW.length; i++) {
   const pts = [];
   for (let k = 0; k <= 96; k++) { const a = k / 96 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * ov.r, 0, Math.sin(a) * ov.r)); }
   const rg = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-    new THREE.LineBasicMaterial({ color: 0x8fa8d8, transparent: true, opacity: 0 }));
+    new THREE.LineBasicMaterial({ color: 0xbcd2ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
   rg.visible = false;
   tScene.add(rg);
   orbitRings.push({ rg, ov });
@@ -1138,10 +1138,19 @@ function updateTour(dt) {
     if (f >= 1) tourArrived();
   } else {
     tourX = tourIdx * T_GAP;
-    // 浮遊感：放置中はどの天体でも同じ、ゆったり漂う周回（触れば止まり、数秒でまた漂い出す）
+    // 浮遊感：放置中はゆったり漂う（触れば止まり、数秒でまた漂い出す）
     const ti = Math.min(1, Math.max(0, (tNow - lastUserT - 4) / 6));
-    tTh += dt * 0.02 * ti;
-    tPh += (1.35 + Math.sin(tNow * 0.10) * 0.14 - tPh) * Math.min(1, dt * 0.25) * ti;
+    if (tourWide) { // 引きビュー：向きも速さもランダムに変わる漂い（遊泳速度バーに連動）
+      if (tNow > twNext) {
+        twNext = tNow + 4 + Math.random() * 7;
+        twV = (0.3 + Math.random() * 0.7) * (Math.random() < 0.7 ? 1 : -1) * 0.05;
+      }
+      tTh += dt * twV * wanderSpeed * ti;
+      tPh += (1.15 + Math.sin(tNow * 0.07) * 0.35 - tPh) * Math.min(1, dt * 0.2) * ti * Math.min(wanderSpeed, 1.6);
+    } else {
+      tTh += dt * 0.02 * ti;
+      tPh += (1.35 + Math.sin(tNow * 0.10) * 0.14 - tPh) * Math.min(1, dt * 0.25) * ti;
+    }
   }
   // 引き(ぜんたい)ビューとの行き来はなめらかにブレンド
   wideT += ((tourWide ? 1 : 0) - wideT) * Math.min(1, dt * 2.2);
@@ -1163,14 +1172,14 @@ function updateTour(dt) {
   for (const o of orbitRings) {
     o.rg.visible = ringsOn;
     if (!ringsOn) continue;
-    o.rg.material.opacity = 0.32 * wv;
+    o.rg.material.opacity = 0.8 * wv; // 軌道の輪はしっかり見せる
     if (o.ov.around !== undefined) orbPos(o.ov.around, o.rg.position); else o.rg.position.set(0, 0, 0);
   }
   const b = tourBodies[tourIdx];
   tourD += (b.dist - tourD) * Math.min(1, dt * 2); // 天体ごとの観賞距離へ滑らかに
   // 引きの中心は太陽。距離は「一番外の軌道が画面に入る」ように画面の縦横比から計算
   const WIDE_CX = 0;
-  const wideD = 320 / Math.max(0.15, Math.tan(37.5 * Math.PI / 180) * tCam.aspect);
+  const wideD = 320 / Math.max(0.15, Math.tan(37.5 * Math.PI / 180) * tCam.aspect) / tourZoom; // ピンチで太陽系ごと近づける
   const cx = tourX + (WIDE_CX - tourX) * wv;
   const d = tourD + (wideD - tourD) * wv, sp = Math.sin(tPh);
   tCam.position.set(cx + d * sp * Math.cos(tTh), d * Math.cos(tPh), d * sp * Math.sin(tTh));
@@ -1180,7 +1189,7 @@ function updateTour(dt) {
   tCam.fov = baseFov + (75 - baseFov) * wv;
   tCam.updateProjectionMatrix();
 }
-function exitTour() { mode = 'orbit'; toOrbitRest(); tourWide = false; wideT = 0; wideSel = -1; $('bTour').classList.remove('on'); }
+function exitTour() { mode = 'orbit'; toOrbitRest(); tourWide = false; wideT = 0; wideSel = -1; tourZoom = 1; $('bTour').classList.remove('on'); }
 
 // ═══════════════ カメラ ═══════════════
 // mode 'orbit' = 宇宙遊泳（常に中心を注視して楕円軌道で漂う）
@@ -1193,6 +1202,7 @@ const cpos = new THREE.Vector3(), cvel = new THREE.Vector3(), camUp = new THREE.
 const viewTarget = new THREE.Vector3(), precAxis = new THREE.Vector3(0, 0, 1); // 見る向き＆歳差軸
 const steerAxis = new THREE.Vector3(1, 0, 0); // ダイブ後の回頭軸（フリック方向で決まる）
 let diveT = 9, diving = false, flickAX = 0, flickAY = 0; // ダイブ状態と、指を離すまでのフリック量の蓄積
+let bousou = false, pressTimer = 0; // 画面長押し=暴走モード（ランダム暴走移動を続ける・タップで解除）
 const _rt = new THREE.Vector3(), _up = new THREE.Vector3(), _q = new THREE.Quaternion();
 let camR = 12, gazeR = 12, wanderNext = 0;
 let wRoll = 0, roll = 0, wanderSpeed = 1.7;  // 左右の軽い傾きと、漂い/飛距離の速さ倍率(スライダー)
@@ -1216,6 +1226,7 @@ let lastUserT = -20, seekingBH = false;
 let bhOn = false, bhSeeded = false; // BHモード（隠し機能・初期OFF）
 
 function enterGaze() { // 今見ている向きを引き継いで地球モードへ
+  bousou = false;
   if (mode === 'orbit') {
     const ph = cpos.clone().normalize();
     const cth = Math.atan2(ph.y, ph.x), cph = Math.acos(Math.max(-1, Math.min(1, ph.z)));
@@ -1232,11 +1243,24 @@ let pinchD0 = 0, fov0 = 62, tapInfo = null;
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) { tapInfo = { x: e.clientX, y: e.clientY, t: performance.now() }; flickAX = 0; flickAY = 0; tourVX = 0; tourVY = 0; tourMoveT = e.timeStamp; }
+  if (pointers.size === 1) {
+    tapInfo = { x: e.clientX, y: e.clientY, t: performance.now() }; flickAX = 0; flickAY = 0; tourVX = 0; tourVY = 0; tourMoveT = e.timeStamp;
+    if (bousou) { bousou = false; toOrbitRest(); } // 暴走モードは画面に触れたら解除
+    else if (mode === 'orbit') { // 長押し(0.6秒・動かさない)で暴走モード開始
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        if (tapInfo && mode === 'orbit') {
+          bousou = true; tapInfo = null; diving = false;
+          if (navigator.vibrate) navigator.vibrate(30);
+          wakeUI();
+        }
+      }, 600);
+    }
+  }
   if (pointers.size === 2) {
     const a = [...pointers.values()];
-    pinchD0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); fov0 = camera.fov;
-    tapInfo = null;
+    pinchD0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); fov0 = camera.fov; tourZoom0 = tourZoom;
+    tapInfo = null; clearTimeout(pressTimer);
   }
   lastUserT = tNow; seekingBH = false; wakeUI();
 });
@@ -1268,13 +1292,18 @@ canvas.addEventListener('pointermove', e => {
   } else if (pointers.size === 2) {
     const a = [...pointers.values()];
     const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
-    camera.fov = Math.max(26, Math.min(95, fov0 * pinchD0 / Math.max(d, 20)));
-    camera.updateProjectionMatrix(); updateSizeUniform();
+    if (mode === 'tour' && tourWide) { // 引きビュー：ピンチは太陽系そのものへの接近（背景の星はそのまま）
+      tourZoom = Math.max(0.6, Math.min(4.0, tourZoom0 * d / Math.max(pinchD0, 20)));
+    } else {
+      camera.fov = Math.max(26, Math.min(95, fov0 * pinchD0 / Math.max(d, 20)));
+      camera.updateProjectionMatrix(); updateSizeUniform();
+    }
   }
   lastUserT = tNow;
 });
 canvas.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId);
+  clearTimeout(pressTimer);
   if (tapInfo && performance.now() - tapInfo.t < 450) {
     if (mode === 'tour') {
       if (tourWide) { // 引きビュー: タップ=その星の解説 / もう一度同じ星=接近 / 何もない所=解説を閉じる
@@ -1310,13 +1339,13 @@ canvas.addEventListener('pointerup', e => {
     if (Math.abs(tourVX) > 0.9 && Math.abs(tourVX) > 1.5 * Math.abs(tourVY)) {
       if (!tourWide) tourGo(tourIdx + (tourVX > 0 ? 1 : -1));
     } else if (Math.abs(tourVY) > 0.9 && Math.abs(tourVY) > 1.5 * Math.abs(tourVX)) {
-      tourWide = !tourWide; wideSel = -1;
+      tourWide = !tourWide; wideSel = -1; tourZoom = 1;
       if (tourWide) card.classList.remove('show'); else tourCard();
     }
   }
   tapInfo = null; lastUserT = tNow; flickAX = 0; flickAY = 0;
 });
-canvas.addEventListener('pointercancel', e => pointers.delete(e.pointerId));
+canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); clearTimeout(pressTimer); });
 addEventListener('wheel', e => {
   camera.fov = Math.max(26, Math.min(95, camera.fov + e.deltaY * 0.02));
   camera.updateProjectionMatrix(); updateSizeUniform(); lastUserT = tNow;
@@ -1396,7 +1425,14 @@ $('bFull').onclick = () => {
   else document.documentElement.requestFullscreen().catch(() => {});
   wakeUI();
 };
-$('bCons').onclick = () => { consLines.visible = !consLines.visible; $('bCons').classList.toggle('on', consLines.visible); wakeUI(); };
+$('bCons').onclick = () => {
+  consLines.visible = !consLines.visible;
+  $('bCons').classList.toggle('on', consLines.visible);
+  if (!consLines.visible) { // OFFにしたら選択中のハイライト線も必ず消す（辻褄）
+    hlLines.visible = false; consLines.material.opacity = 0.28; clearTimeout(hlTimer);
+  }
+  wakeUI();
+};
 $('bHome').onclick = () => {
   if (mode === 'history') exitHistory();
   if (mode === 'tour') exitTour();
@@ -1409,7 +1445,7 @@ $('bHist').onclick = () => { // 地球46億年の旅
   else {
     if (mode === 'gaze') exitGaze();
     if (mode === 'tour') exitTour();
-    mode = 'history';
+    mode = 'history'; seekingBH = false; seekCon = -1; bousou = false;
     $('bHist').classList.add('on'); $('era').classList.add('show');
     card.classList.remove('show'); panelEl.classList.remove('open');
     histP = 0; eraIdx = -1; // いつも「誕生」から始まる
@@ -1420,54 +1456,85 @@ $('bHist').onclick = () => { // 地球46億年の旅
 // ═══════════════ 癒しの環境音（生成式・音源ファイル不要） ═══════════════
 let snd = null;
 function startSound() {
+  if (snd) return;
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const master = ctx.createGain();
   master.gain.value = 0;
   master.connect(ctx.destination);
-  master.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 4);
-  // 深宇宙のドローン（低い音がゆっくり呼吸する）
-  [55, 82.41, 110.0].forEach((fq, i) => {
-    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fq;
-    const g = ctx.createGain(); g.gain.value = 0.05;
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.02 + i * 0.013;
-    const lg = ctx.createGain(); lg.gain.value = 0.032;
-    lfo.connect(lg); lg.connect(g.gain);
-    o.connect(g); g.connect(master); o.start(); lfo.start();
+  master.gain.linearRampToValueAtTime(0.45, ctx.currentTime + 5); // ゆっくり満ちてくる
+  const warm = ctx.createBiquadFilter(); // 全体の角を取って、やわらかい音に
+  warm.type = 'lowpass'; warm.frequency.value = 2600; warm.Q.value = 0.4;
+  warm.connect(master);
+  // 1) 深宇宙のドローン：各音を「わずかにずれた2本」で鳴らして左右に広げる（厚みとうなり）
+  [[55, 0.050], [82.41, 0.040], [110.0, 0.034], [164.81, 0.016]].forEach(([fq, vol], i) => {
+    [-1, 1].forEach(sgn => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fq * (1 + sgn * 0.0016);
+      const g = ctx.createGain(); g.gain.value = vol * 0.5;
+      const pan = ctx.createStereoPanner(); pan.pan.value = sgn * 0.45;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.016 + i * 0.011 + (sgn + 1) * 0.004;
+      const lg = ctx.createGain(); lg.gain.value = vol * 0.3;
+      lfo.connect(lg); lg.connect(g.gain);
+      o.connect(g); g.connect(pan); pan.connect(warm);
+      o.start(); lfo.start();
+    });
   });
-  // 星のきらめき（ときどき遠くで鈴のような音・宇宙の残響つき）
-  const dly = ctx.createDelay(2.0); dly.delayTime.value = 0.55;
-  const fb = ctx.createGain(); fb.gain.value = 0.42;
-  const dfl = ctx.createBiquadFilter(); dfl.type = 'lowpass'; dfl.frequency.value = 1600;
-  dly.connect(fb); fb.connect(dfl); dfl.connect(dly);
-  dly.connect(master);
+  // 2) 宇宙の風（低いノイズがゆっくりうねる）
+  const nbuf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+  const nd = nbuf.getChannelData(0);
+  let nv = 0;
+  for (let i = 0; i < nd.length; i++) { nv = (nv + (Math.random() * 2 - 1) * 0.02) * 0.995; nd[i] = nv * 3.5; }
+  const ns = ctx.createBufferSource(); ns.buffer = nbuf; ns.loop = true;
+  const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 170; nf.Q.value = 0.5;
+  const ng = ctx.createGain(); ng.gain.value = 0.05;
+  const nlfo = ctx.createOscillator(); nlfo.frequency.value = 0.021;
+  const nlg = ctx.createGain(); nlg.gain.value = 0.03;
+  nlfo.connect(nlg); nlg.connect(ng.gain);
+  ns.connect(nf); nf.connect(ng); ng.connect(warm);
+  ns.start(); nlfo.start();
+  // 3) 宇宙の残響（長短2系統のこだま）
+  const mkDly = (t, fbv, fc) => {
+    const d = ctx.createDelay(2.0); d.delayTime.value = t;
+    const fb = ctx.createGain(); fb.gain.value = fbv;
+    const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = fc;
+    d.connect(fb); fb.connect(fl); fl.connect(d);
+    d.connect(warm);
+    return d;
+  };
+  const dly1 = mkDly(0.553, 0.44, 1500), dly2 = mkDly(0.373, 0.38, 1100);
+  // 4) 星の鈴：鐘らしい倍音3つ・毎回ちがう場所(左右)で鳴り、遠くでこだまする
   const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
   let bellTimer = 0;
   const bell = () => {
     if (!snd) return;
-    const o = ctx.createOscillator(); o.type = 'sine';
-    o.frequency.value = PENTA[(Math.random() * PENTA.length) | 0] * (Math.random() < 0.3 ? 0.5 : 1);
+    const f = PENTA[(Math.random() * PENTA.length) | 0] * (Math.random() < 0.3 ? 0.5 : 1);
+    const pan = ctx.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.08);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 5);
-    o.connect(g); g.connect(master); g.connect(dly);
-    o.start(); o.stop(ctx.currentTime + 5.2);
+    g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.10);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 6);
+    [[1, 1.0], [2.01, 0.35], [2.74, 0.12]].forEach(([m, v]) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
+      const og = ctx.createGain(); og.gain.value = v;
+      o.connect(og); og.connect(g);
+      o.start(); o.stop(ctx.currentTime + 6.2);
+    });
+    g.connect(pan); pan.connect(warm); g.connect(dly1); g.connect(dly2);
     bellTimer = setTimeout(bell, 3500 + Math.random() * 9000);
   };
-  bellTimer = setTimeout(bell, 2500);
+  bellTimer = setTimeout(bell, 2000);
   snd = { ctx, stop: () => { clearTimeout(bellTimer); master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8); setTimeout(() => ctx.close(), 1000); } };
 }
-$('bSnd').onclick = () => {
-  if (snd) { snd.stop(); snd = null; $('bSnd').classList.remove('on'); }
-  else { startSound(); $('bSnd').classList.add('on'); }
-  wakeUI();
-};
+// 音は「最初からある世界」にする。ブラウザの決まり上、最初に画面へ触れた瞬間に始まる（音量は端末側で調整）
+document.addEventListener('pointerdown', () => startSound(), { once: true });
 $('bBH').onclick = () => { // BHモード（隠し機能）：押した人だけ超早回しの銀河が始まる
   bhOn = !bhOn;
   $('bBH').classList.toggle('on', bhOn);
   $('stats').style.display = bhOn ? '' : 'none';
   nbPoints.visible = bhOn;
   if (bhOn) {
+    if (mode === 'history') exitHistory(); // BHが見えないモードにいたら遊泳へ戻して見せる（辻褄）
+    if (mode === 'tour') exitTour();
+    bousou = false;
     if (!bhSeeded) { bhSeeded = true; for (let i = 0; i < 60; i++) spawnStar(); }
     seekingBH = true; lastUserT = -20;
   } else seekingBH = false;
@@ -1478,7 +1545,7 @@ $('bTour').onclick = () => { // 太陽系めぐり
   else {
     if (mode === 'history') exitHistory();
     if (mode === 'gaze') exitGaze();
-    mode = 'tour';
+    mode = 'tour'; seekingBH = false; seekCon = -1; bousou = false;
     $('bTour').classList.add('on');
     panelEl.classList.remove('open');
     tourCard(); // ようこそ（今いる天体の紹介）
@@ -1501,6 +1568,8 @@ function selectCon(ci) {
   consLines.material.opacity = 0.10;
   clearTimeout(hlTimer);
   hlTimer = setTimeout(() => { hlLines.visible = false; consLines.material.opacity = 0.28; }, 30000);
+  if (mode === 'history') exitHistory(); // どのモードから検索しても辻褄が合うように必ず抜けてから
+  if (mode === 'tour') exitTour();
   enterGaze();
   seekCon = ci; seekingBH = false; lastUserT = -20;
   const abbr = D.cons[ci];
@@ -1546,6 +1615,9 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
   tourJump: i => { tourGo(i); },        // 動作確認用：太陽系めぐりの駅ジャンプ
   scenes: { hScene, tScene, scene },    // 動作確認用：シーン走査（犯人探し等）
   tourWideSet: b => { tourWide = b; },  // 動作確認用：引き(ぜんたい)ビューの切替
+  tourZoomSet: z => { tourZoom = z; },  // 動作確認用：引きのピンチ接近倍率
+  bousouSet: b => { bousou = b; if (!b) toOrbitRest(); }, // 動作確認用：暴走モード
+  sndState: () => ({ on: !!snd, ctx: snd ? snd.ctx.state : '-' }), // 動作確認用：音の状態
   tourTick: s => { updateTour(s); tScene.updateMatrixWorld(true); }, // 動作確認用：描画ループなしで1コマ進める
   tourState: () => ({ idx: tourIdx, name: tourBodies[tourIdx].name, x: +tourX.toFixed(1), flying: flyT < FLY_DUR, wide: tourWide, wideT: +wideT.toFixed(2) }),
   planetsDbg: () => planetSprites.map(({ sp, p }) => { const v = sp.position.clone().project(hCam); return { n: p.n, nx: +v.x.toFixed(2), ny: +v.y.toFixed(2), front: v.z < 1, pos: sp.position.toArray().map(x => Math.round(x)) }; }),
@@ -1618,6 +1690,16 @@ function loop(now) {
       if (cpos.distanceTo(_rt) < 0.4) { seekingBH = false; lastUserT = tNow; }
     } else {
       diveT += dt;
+      if (bousou && cvel.length() < 8) { // 暴走モード：勢いが尽きたら即、次のランダム突進へ
+        _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+        if (cpos.length() > ORB.rMax * 0.75) { // 壁際では内向きを混ぜて外に張り付かない
+          _up.copy(cpos).normalize();
+          _rt.addScaledVector(_up, -1.3).normalize();
+        }
+        cvel.copy(_rt).multiplyScalar(45 + Math.random() * 20);
+        steerAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+        diveT = 0; diving = true;
+      }
       const r = Math.max(0.001, cpos.length());
       const sp0 = cvel.length();
       if (sp0 > 3) { // ダイブ中：まず直進、やがてフリック方向へゆっくりじっくり旋回
@@ -1747,6 +1829,8 @@ function loop(now) {
         : `🪐 太陽系めぐり: ${tourBodies[tourIdx].name} ─ 左右フリック=隣へ・縦フリック=引き`;
     } else if (mode === 'gaze') {
       $('pos').textContent = '🌍 地球の夜空 ─ いま地上で見えるままの空';
+    } else if (bousou) {
+      $('pos').textContent = '🚀 暴走モード ─ 画面タップでおわる';
     } else {
       let ni = -1, nd2 = 1e18;
       const cp = camera.position;
@@ -1759,7 +1843,7 @@ function loop(now) {
       const nName = p ? (JP_STAR[p] || p) : (D.stars[ni][5] >= 0 ? (JP_CON[D.cons[D.stars[ni][5]]] || '') + 'の星' : '名もなき星');
       $('pos').textContent = `太陽から ${(cp.length() * 3.2616).toFixed(0)}光年 ／ 最寄り ${nName} ${(Math.sqrt(nd2) * 3.2616).toFixed(1)}光年`;
     }
-    $('speed').style.display = (mode === 'orbit') ? '' : 'none'; // スライダーは宇宙遊泳モードだけ
+    $('speed').style.display = (mode === 'orbit' || (mode === 'tour' && tourWide)) ? '' : 'none'; // 遊泳と太陽系の引きビューで表示
     if (t - uiWakeT > 3 && uiWakeT > 0) { $('ui').classList.add('fade'); $('stats').classList.add('fade'); $('pos').classList.add('fade'); $('speed').classList.add('fade'); }
   }
 
