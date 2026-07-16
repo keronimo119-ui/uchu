@@ -1117,6 +1117,7 @@ function tourGo(i) { // 隣の駅へ飛ぶ（端はループ：土星の次は�
   const w = ((i % n) + n) % n;
   if (w === tourIdx) return;
   flyFromX = tourX; flyFromIdx = tourIdx; tourIdx = w; flyT = 0;
+  SFX.whoosh(0.7); // 駅間の飛行音
   if (i >= n) { tourBodies[w].stationX = n * T_GAP; flyToX = n * T_GAP; }       // 右端越え→仮駅を先に置く
   else if (i < 0) { tourBodies[w].stationX = -T_GAP; flyToX = -T_GAP; }         // 左端越え→仮駅を後ろに置く
   else flyToX = w * T_GAP;
@@ -1125,6 +1126,7 @@ function tourGo(i) { // 隣の駅へ飛ぶ（端はループ：土星の次は�
 function tourArrived() { // 到着：仮駅を正規位置へ戻し（カメラと同時に動くので見た目は不変）、紹介カード
   tourBodies[tourIdx].stationX = tourIdx * T_GAP;
   tourX = tourIdx * T_GAP;
+  SFX.arrive(); // 到着のやわらかい2音
   tourCard();
 }
 function updateTour(dt) {
@@ -1252,6 +1254,7 @@ canvas.addEventListener('pointerdown', e => {
         if (tapInfo && mode === 'orbit') {
           bousou = true; tapInfo = null; diving = false;
           if (navigator.vibrate) navigator.vibrate(30);
+          SFX.rockOn(); // 暴走のお供は激しいロック
           wakeUI();
         }
       }, 600);
@@ -1332,6 +1335,7 @@ canvas.addEventListener('pointerup', e => {
       cvel.copy(viewTarget).addScaledVector(_up, ORB.hopTilt).normalize()                   // 進路=奥+少しホップ
         .multiplyScalar(Math.min(ORB.vMax, mag * (camera.fov / 62) * ORB.flickV));
       diveT = 0; diving = true;
+      SFX.whoosh(Math.min(1, mag / 350)); // フリックの強さで風切り音
     }
   }
   else if (mode === 'tour' && pointers.size === 0) {
@@ -1386,6 +1390,7 @@ function pickStar(px, py) {
       <div class="s">Sol ／ 地球はこの光のすぐ隣（遠すぎて見えない小ささ）</div>
       <div class="d">いまのあなたから ${dly.toFixed(1)}光年</div>
       <div class="y">人類の歴史のすべては、この小さな光のまわりで起きました</div>`;
+    SFX.chime();
     card.classList.add('show');
     clearTimeout(cardTimer);
     cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
@@ -1409,6 +1414,7 @@ function pickStar(px, py) {
   const c = bvToRGB(s[4]);
   card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${name}</div>
     <div class="s">${sub}</div><div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
+  SFX.chime();
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
@@ -1455,62 +1461,84 @@ $('bHist').onclick = () => { // 地球46億年の旅
 
 // ═══════════════ 癒しの環境音（生成式・音源ファイル不要） ═══════════════
 let snd = null;
+// 操作連動の効果音（音が始まる前は何もしない空関数。startSoundで本物に差し替わる）
+const SFX = { whoosh: () => {}, chime: () => {}, arrive: () => {}, boom: () => {}, rockOn: () => {}, rockOff: () => {} };
 function startSound() {
   if (snd) return;
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const master = ctx.createGain();
   master.gain.value = 0;
   master.connect(ctx.destination);
-  master.gain.linearRampToValueAtTime(0.45, ctx.currentTime + 5); // ゆっくり満ちてくる
-  const warm = ctx.createBiquadFilter(); // 全体の角を取って、やわらかい音に
-  warm.type = 'lowpass'; warm.frequency.value = 2600; warm.Q.value = 0.4;
+  master.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 3);
+  const warm = ctx.createBiquadFilter(); // 癒しパートの角を取る
+  warm.type = 'lowpass'; warm.frequency.value = 2800; warm.Q.value = 0.4;
   warm.connect(master);
-  // 1) 深宇宙のドローン：各音を「わずかにずれた2本」で鳴らして左右に広げる（厚みとうなり）
-  [[55, 0.050], [82.41, 0.040], [110.0, 0.034], [164.81, 0.016]].forEach(([fq, vol], i) => {
-    [-1, 1].forEach(sgn => {
-      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = fq * (1 + sgn * 0.0016);
-      const g = ctx.createGain(); g.gain.value = vol * 0.5;
-      const pan = ctx.createStereoPanner(); pan.pan.value = sgn * 0.45;
-      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.016 + i * 0.011 + (sgn + 1) * 0.004;
-      const lg = ctx.createGain(); lg.gain.value = vol * 0.3;
-      lfo.connect(lg); lg.connect(g.gain);
-      o.connect(g); g.connect(pan); pan.connect(warm);
-      o.start(); lfo.start();
-    });
-  });
-  // 2) 宇宙の風（低いノイズがゆっくりうねる）
-  const nbuf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
-  const nd = nbuf.getChannelData(0);
-  let nv = 0;
-  for (let i = 0; i < nd.length; i++) { nv = (nv + (Math.random() * 2 - 1) * 0.02) * 0.995; nd[i] = nv * 3.5; }
-  const ns = ctx.createBufferSource(); ns.buffer = nbuf; ns.loop = true;
-  const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 170; nf.Q.value = 0.5;
-  const ng = ctx.createGain(); ng.gain.value = 0.05;
-  const nlfo = ctx.createOscillator(); nlfo.frequency.value = 0.021;
-  const nlg = ctx.createGain(); nlg.gain.value = 0.03;
-  nlfo.connect(nlg); nlg.connect(ng.gain);
-  ns.connect(nf); nf.connect(ng); ng.connect(warm);
-  ns.start(); nlfo.start();
-  // 3) 宇宙の残響（長短2系統のこだま）
+  const pad = ctx.createGain(); pad.gain.value = 1; pad.connect(warm); // 癒し全体（ロック中は下げる）
+  // 共用ノイズ（風・風切り音・ドラム用）
+  const nzBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  { const d = nzBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  // 宇宙の残響（長短2系統のこだま）
   const mkDly = (t, fbv, fc) => {
     const d = ctx.createDelay(2.0); d.delayTime.value = t;
     const fb = ctx.createGain(); fb.gain.value = fbv;
     const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = fc;
     d.connect(fb); fb.connect(fl); fl.connect(d);
-    d.connect(warm);
+    d.connect(pad);
     return d;
   };
   const dly1 = mkDly(0.553, 0.44, 1500), dly2 = mkDly(0.373, 0.38, 1100);
-  // 4) 星の鈴：鐘らしい倍音3つ・毎回ちがう場所(左右)で鳴り、遠くでこだまする
-  const PENTA = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+  // ── 和音のパッド：コード進行(Am9→Fmaj7→Cmaj7→G6)が11秒ごとに5秒かけて移り変わる ──
+  const PROG = [
+    [110.00, 164.81, 246.94, 261.63], // Am9
+    [87.31, 130.81, 164.81, 220.00],  // Fmaj7
+    [130.81, 196.00, 246.94, 329.63], // Cmaj7
+    [98.00, 146.83, 220.00, 246.94]   // G6(9)
+  ];
+  let chordI = 0, chordTimer = 0;
+  const playChord = fs => {
+    const t0 = ctx.currentTime;
+    fs.forEach((f, vi) => {
+      [-1, 1].forEach(sgn => {
+        const o = ctx.createOscillator();
+        o.type = vi === 0 ? 'triangle' : 'sine'; // 根音だけ少し豊かな音色
+        o.frequency.value = f * (1 + sgn * 0.0015);
+        const g = ctx.createGain();
+        const v = vi === 0 ? 0.042 : 0.027;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(v, t0 + 5);
+        g.gain.setValueAtTime(v, t0 + 11);
+        g.gain.linearRampToValueAtTime(0.0001, t0 + 16);
+        const pan = ctx.createStereoPanner(); pan.pan.value = sgn * 0.4;
+        o.connect(g); g.connect(pan); pan.connect(pad);
+        o.start(t0); o.stop(t0 + 16.5);
+      });
+    });
+  };
+  const chordLoop = () => {
+    if (!snd) return;
+    snd.chord = PROG[chordI++ % PROG.length];
+    playChord(snd.chord);
+    chordTimer = setTimeout(chordLoop, 11000);
+  };
+  // ── 宇宙の風（低いノイズのうねり）──
+  const ns = ctx.createBufferSource(); ns.buffer = nzBuf; ns.loop = true;
+  const nf = ctx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 220;
+  const ng = ctx.createGain(); ng.gain.value = 0.045;
+  const nlfo = ctx.createOscillator(); nlfo.frequency.value = 0.021;
+  const nlg = ctx.createGain(); nlg.gain.value = 0.028;
+  nlfo.connect(nlg); nlg.connect(ng.gain);
+  ns.connect(nf); nf.connect(ng); ng.connect(pad);
+  ns.start(); nlfo.start();
+  // ── 星の鈴：いま鳴っている和音の構成音で鳴る（＝必ずハモる）──
   let bellTimer = 0;
   const bell = () => {
     if (!snd) return;
-    const f = PENTA[(Math.random() * PENTA.length) | 0] * (Math.random() < 0.3 ? 0.5 : 1);
+    if (snd.rock) { bellTimer = setTimeout(bell, 3000); return; } // ロック中はお休み
+    const f = snd.chord[(Math.random() * snd.chord.length) | 0] * (Math.random() < 0.5 ? 2 : 4);
     const pan = ctx.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.10);
+    g.gain.exponentialRampToValueAtTime(0.045, ctx.currentTime + 0.10);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 6);
     [[1, 1.0], [2.01, 0.35], [2.74, 0.12]].forEach(([m, v]) => {
       const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * m;
@@ -1518,11 +1546,150 @@ function startSound() {
       o.connect(og); og.connect(g);
       o.start(); o.stop(ctx.currentTime + 6.2);
     });
-    g.connect(pan); pan.connect(warm); g.connect(dly1); g.connect(dly2);
-    bellTimer = setTimeout(bell, 3500 + Math.random() * 9000);
+    g.connect(pan); pan.connect(pad); g.connect(dly1); g.connect(dly2);
+    bellTimer = setTimeout(bell, 4000 + Math.random() * 9000);
   };
-  bellTimer = setTimeout(bell, 2000);
-  snd = { ctx, stop: () => { clearTimeout(bellTimer); master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8); setTimeout(() => ctx.close(), 1000); } };
+  bellTimer = setTimeout(bell, 2500);
+  snd = { ctx, chord: PROG[0], rock: null,
+    stop: () => { clearTimeout(bellTimer); clearTimeout(chordTimer); master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8); setTimeout(() => ctx.close(), 1000); } };
+  chordLoop();
+
+  // ══ ここから操作連動の効果音 ══
+  SFX.whoosh = (k = 1) => { // フリック・駅移動の風切り音（強さkで変わる）
+    const s = ctx.createBufferSource(); s.buffer = nzBuf;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.9;
+    const t0 = ctx.currentTime;
+    f.frequency.setValueAtTime(240, t0);
+    f.frequency.exponentialRampToValueAtTime(900 + 1100 * k, t0 + 0.28);
+    f.frequency.exponentialRampToValueAtTime(180, t0 + 0.75);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.16 + 0.12 * k, t0 + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t0); s.stop(t0 + 0.85);
+  };
+  SFX.chime = () => { // 星タップ：いまの和音の高音アルペジオ（ポロン）
+    const t0 = ctx.currentTime;
+    [0, 1, 2].forEach(i => {
+      const f = snd.chord[(i + 1) % snd.chord.length] * 2;
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.09);
+      g.gain.exponentialRampToValueAtTime(0.06, t0 + i * 0.09 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.09 + 1.6);
+      o.connect(g); g.connect(pad); g.connect(dly1);
+      o.start(t0 + i * 0.09); o.stop(t0 + i * 0.09 + 1.7);
+    });
+  };
+  SFX.arrive = () => { // 惑星に到着：低→高のやわらかい2音
+    const t0 = ctx.currentTime;
+    [[snd.chord[0] * 2, 0], [snd.chord[2] * 2, 0.16]].forEach(([f, d]) => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.07, t0 + d + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 1.2);
+      o.connect(g); g.connect(pad); g.connect(dly2);
+      o.start(t0 + d); o.stop(t0 + d + 1.3);
+    });
+  };
+  SFX.boom = () => { // BH起動：沈み込む重低音
+    const t0 = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(65, t0);
+    o.frequency.exponentialRampToValueAtTime(27, t0 + 1.3);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.6);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + 1.7);
+    const s = ctx.createBufferSource(); s.buffer = nzBuf;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 140;
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.25, t0);
+    sg.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.0);
+    s.connect(f); f.connect(sg); sg.connect(master);
+    s.start(t0); s.stop(t0 + 1.05);
+  };
+  // ══ 暴走モードの生成ロック（歪んだパワーコード+ドラム・140BPM）══
+  SFX.rockOn = () => {
+    if (snd.rock) return;
+    const t0 = ctx.currentTime;
+    pad.gain.linearRampToValueAtTime(0.12, t0 + 0.4); // 癒しは奥へ
+    const bus = ctx.createGain(); bus.gain.value = 0;
+    bus.gain.linearRampToValueAtTime(0.9, t0 + 0.4);
+    bus.connect(master);
+    const dist = ctx.createWaveShaper(); // ギターの歪み
+    { const n = 256, c = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(x * 6); }
+      dist.curve = c; dist.oversample = '2x'; }
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3400;
+    const gtr = ctx.createGain(); gtr.gain.value = 0.5;
+    gtr.connect(dist); dist.connect(lp); lp.connect(bus);
+    const drums = ctx.createGain(); drums.gain.value = 1; drums.connect(bus);
+    const kick = tt => {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(150, tt); o.frequency.exponentialRampToValueAtTime(45, tt + 0.12);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.9, tt); g.gain.exponentialRampToValueAtTime(0.001, tt + 0.18);
+      o.connect(g); g.connect(drums); o.start(tt); o.stop(tt + 0.2);
+    };
+    const snare = tt => {
+      const s = ctx.createBufferSource(); s.buffer = nzBuf;
+      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 0.7;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.5, tt); g.gain.exponentialRampToValueAtTime(0.001, tt + 0.16);
+      s.connect(f); f.connect(g); g.connect(drums); s.start(tt); s.stop(tt + 0.2);
+      const o = ctx.createOscillator(); o.frequency.value = 190;
+      const og = ctx.createGain(); og.gain.setValueAtTime(0.3, tt); og.gain.exponentialRampToValueAtTime(0.001, tt + 0.1);
+      o.connect(og); og.connect(drums); o.start(tt); o.stop(tt + 0.12);
+    };
+    const hat = (tt, open) => {
+      const s = ctx.createBufferSource(); s.buffer = nzBuf;
+      const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7000;
+      const g = ctx.createGain(); const d = open ? 0.22 : 0.05;
+      g.gain.setValueAtTime(0.14, tt); g.gain.exponentialRampToValueAtTime(0.001, tt + d);
+      s.connect(f); f.connect(g); g.connect(drums); s.start(tt); s.stop(tt + d + 0.02);
+    };
+    const chug = (tt, semi, acc) => { // パワーコード(根音+5度+オクターブ)の刻み
+      const root = 82.41 * Math.pow(2, semi / 12);
+      const dur = acc ? 0.42 : 0.13;
+      [1, 1.5, 2].forEach(m => {
+        const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = root * m;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(acc ? 0.30 : 0.22, tt);
+        g.gain.exponentialRampToValueAtTime(0.001, tt + dur);
+        o.connect(g); g.connect(gtr); o.start(tt); o.stop(tt + dur + 0.05);
+      });
+    };
+    const RIFFS = [ // Eマイナーペンタ(0=E,3=G,5=A,7=B,10=D)のリフ3種
+      [0, 0, 3, 0, 0, 5, 3, 0],
+      [0, 0, 0, 7, 5, 3, 0, 0],
+      [0, 3, 5, 7, 5, 3, 0, 10]
+    ];
+    const step = 60 / 140 / 2; // 8分音符
+    let stepN = 0, nextT = ctx.currentTime + 0.08, riff = RIFFS[0];
+    const iv = setInterval(() => { // 少し先まで予約しながら鳴らす
+      if (!snd || !snd.rock) return;
+      while (nextT < ctx.currentTime + 0.25) {
+        const s8 = stepN % 8;
+        if (stepN % 32 === 0) riff = RIFFS[(Math.random() * RIFFS.length) | 0]; // 4小節ごとにリフ交代
+        if (s8 === 0 || s8 === 4 || (s8 === 6 && Math.random() < 0.4)) kick(nextT);
+        if (s8 === 2 || s8 === 6) snare(nextT);
+        hat(nextT, s8 === 7);
+        chug(nextT, riff[s8], s8 === 0 || s8 === 4);
+        nextT += step; stepN++;
+      }
+    }, 100);
+    snd.rock = { stop: () => {
+      clearInterval(iv);
+      const tt = ctx.currentTime;
+      bus.gain.linearRampToValueAtTime(0, tt + 0.5);
+      pad.gain.linearRampToValueAtTime(1, tt + 1.5); // 癒しが戻ってくる
+      setTimeout(() => { try { bus.disconnect(); } catch (e) {} }, 800);
+    } };
+  };
+  SFX.rockOff = () => { if (snd.rock) { snd.rock.stop(); snd.rock = null; } };
 }
 // 音は「最初からある世界」にする。ブラウザの決まり上、最初に画面へ触れた瞬間に始まる（音量は端末側で調整）
 document.addEventListener('pointerdown', () => startSound(), { once: true });
@@ -1535,6 +1702,7 @@ $('bBH').onclick = () => { // BHモード（隠し機能）：押した人だけ
     if (mode === 'history') exitHistory(); // BHが見えないモードにいたら遊泳へ戻して見せる（辻褄）
     if (mode === 'tour') exitTour();
     bousou = false;
+    SFX.boom(); // 深淵が目を覚ます音
     if (!bhSeeded) { bhSeeded = true; for (let i = 0; i < 60; i++) spawnStar(); }
     seekingBH = true; lastUserT = -20;
   } else seekingBH = false;
@@ -1578,6 +1746,7 @@ function selectCon(ci) {
     <div class="s">${abbr} ／ ${conSeason(ci)}</div>
     <div class="d">${CON_INFO[abbr] || ''}</div>` +
     (bright ? `<div class="y">いちばん明るい星: ${bright}</div>` : '');
+  SFX.chime();
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 12000);
@@ -1617,7 +1786,8 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
   tourWideSet: b => { tourWide = b; },  // 動作確認用：引き(ぜんたい)ビューの切替
   tourZoomSet: z => { tourZoom = z; },  // 動作確認用：引きのピンチ接近倍率
   bousouSet: b => { bousou = b; if (!b) toOrbitRest(); }, // 動作確認用：暴走モード
-  sndState: () => ({ on: !!snd, ctx: snd ? snd.ctx.state : '-' }), // 動作確認用：音の状態
+  sndState: () => ({ on: !!snd, ctx: snd ? snd.ctx.state : '-', rock: !!(snd && snd.rock), chordRoot: snd ? snd.chord[0] : 0 }), // 動作確認用：音の状態
+  sfx: SFX, // 動作確認用：効果音を直接鳴らす
   tourTick: s => { updateTour(s); tScene.updateMatrixWorld(true); }, // 動作確認用：描画ループなしで1コマ進める
   tourState: () => ({ idx: tourIdx, name: tourBodies[tourIdx].name, x: +tourX.toFixed(1), flying: flyT < FLY_DUR, wide: tourWide, wideT: +wideT.toFixed(2) }),
   planetsDbg: () => planetSprites.map(({ sp, p }) => { const v = sp.position.clone().project(hCam); return { n: p.n, nx: +v.x.toFixed(2), ny: +v.y.toFixed(2), front: v.z < 1, pos: sp.position.toArray().map(x => Math.round(x)) }; }),
@@ -1677,6 +1847,7 @@ function loop(now) {
 
   advanceSim(dt * SIM.speed);
   writeNbBuffers();
+  if (snd && snd.rock && !bousou) SFX.rockOff(); // どの経路で暴走が終わってもロックは必ず止まる
   flash *= Math.pow(0.03, Math.max(dt, dt * SIM.speed)); // 閃光の減衰
 
   // カメラ
@@ -1690,13 +1861,22 @@ function loop(now) {
       if (cpos.distanceTo(_rt) < 0.4) { seekingBH = false; lastUserT = tNow; }
     } else {
       diveT += dt;
-      if (bousou && cvel.length() < 8) { // 暴走モード：勢いが尽きたら即、次のランダム突進へ
-        _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+      if (bousou && cvel.length() < 8) { // 暴走モード：勢いが尽きたら即、次の突進へ
+        let spd;
+        if (Math.random() < 0.7) { // 7割は「見ている奥」へまっすぐ＝爽快感
+          _rt.copy(viewTarget);
+          _rt.x += (Math.random() - 0.5) * 0.22; _rt.y += (Math.random() - 0.5) * 0.22; _rt.z += (Math.random() - 0.5) * 0.22;
+          _rt.normalize();
+          spd = 55 + Math.random() * 12;
+        } else { // 3割はランダム方向へ振り回される
+          _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+          spd = 45 + Math.random() * 18;
+        }
         if (cpos.length() > ORB.rMax * 0.75) { // 壁際では内向きを混ぜて外に張り付かない
           _up.copy(cpos).normalize();
           _rt.addScaledVector(_up, -1.3).normalize();
         }
-        cvel.copy(_rt).multiplyScalar(45 + Math.random() * 20);
+        cvel.copy(_rt).multiplyScalar(spd);
         steerAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
         diveT = 0; diving = true;
       }
