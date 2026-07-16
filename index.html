@@ -147,7 +147,7 @@ const showErr = m => { const e = $('err'); e.style.display = 'flex'; e.textConte
 
 let THREE;
 try {
-  THREE = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
+  THREE = await import('./three.module.js'); // ローカル同梱(r160)・ネット接続不要
 } catch (e) { showErr('初回の読み込みにはインターネット接続が必要です'); throw e; }
 if (!window.UCHU_DATA) { showErr('星データ(stars.js)が見つかりません'); throw new Error('no data'); }
 

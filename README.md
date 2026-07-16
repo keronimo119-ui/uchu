@@ -5,7 +5,7 @@
 星空そのものを本物の天文データで作り直したもの。Android アプリ化（バナー広告収益）が最終目標。
 
 ## ファイル
-- `index.html` — アプリ本体（three.js r160 を CDN から読込。初回のみネット接続が必要）
+- `index.html` — アプリ本体（three.js r160 は `three.module.js` としてローカル同梱・完全オフライン動作 2026-07-16）
 - `stars.js` — 実在の星データ 8,920個（313KB、自動生成。手で編集しない）
 - `CLAUDE.md` — **作業ルール（AIは着手前に必読・自動読込）**
 - `DESIGN.md` — **機能1〜20の完全設計図（コード地図・データ入手先・実装手順・検証法・落とし穴）**
@@ -95,7 +95,7 @@ HYG CSV と Stellarium index.json を落として scratchpad の process.js を�
 （このREADMEの「使っているデータ」のURL参照。詳細は process.js 内コメント）。
 
 ## 次にやること（候補）
-1. three.js をローカル同梱してオフライン化（Android化の前提）
+1. ~~three.js をローカル同梱してオフライン化~~（2026-07-16完了）
 2. Android アプリ化（mochi と同じ WebView/TWA 方式）＋ AdMob バナー
 3. GitHub リポジトリ化して他PCと共有
 
