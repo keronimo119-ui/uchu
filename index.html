@@ -1863,18 +1863,22 @@ function loop(now) {
       diveT += dt;
       if (bousou && cvel.length() < 8) { // 暴走モード：勢いが尽きたら即、次の突進へ
         let spd;
+        _up.copy(cpos).normalize(); // 外向き
         if (Math.random() < 0.7) { // 7割は「見ている奥」へまっすぐ＝爽快感
           _rt.copy(viewTarget);
-          _rt.x += (Math.random() - 0.5) * 0.22; _rt.y += (Math.random() - 0.5) * 0.22; _rt.z += (Math.random() - 0.5) * 0.22;
+          _rt.x += (Math.random() - 0.5) * 0.15; _rt.y += (Math.random() - 0.5) * 0.15; _rt.z += (Math.random() - 0.5) * 0.15;
           _rt.normalize();
-          spd = 55 + Math.random() * 12;
+          const out = _rt.dot(_up);
+          if (cpos.length() > ORB.rMax * 0.6 && out > -0.1) {
+            // 壁際で外を向いていたら「外向き成分だけ」打ち消して少し内へ＝中央を突っ切る長い直進になる
+            _rt.addScaledVector(_up, -(out + 0.35)).normalize();
+          }
+          spd = 58 + Math.random() * 10;
         } else { // 3割はランダム方向へ振り回される
           _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+          const out = _rt.dot(_up);
+          if (cpos.length() > ORB.rMax * 0.75 && out > 0) _rt.addScaledVector(_up, -(out + 0.4)).normalize();
           spd = 45 + Math.random() * 18;
-        }
-        if (cpos.length() > ORB.rMax * 0.75) { // 壁際では内向きを混ぜて外に張り付かない
-          _up.copy(cpos).normalize();
-          _rt.addScaledVector(_up, -1.3).normalize();
         }
         cvel.copy(_rt).multiplyScalar(spd);
         steerAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
