@@ -1861,35 +1861,26 @@ function loop(now) {
       if (cpos.distanceTo(_rt) < 0.4) { seekingBH = false; lastUserT = tNow; }
     } else {
       diveT += dt;
-      if (bousou && cvel.length() < 8) { // 暴走モード：勢いが尽きたら即、次の突進へ
-        let spd;
-        _up.copy(cpos).normalize(); // 外向き
-        if (Math.random() < 0.7) { // 7割は「見ている奥」へまっすぐ＝爽快感
-          _rt.copy(viewTarget);
-          _rt.x += (Math.random() - 0.5) * 0.15; _rt.y += (Math.random() - 0.5) * 0.15; _rt.z += (Math.random() - 0.5) * 0.15;
-          _rt.normalize();
-          const out = _rt.dot(_up);
-          if (cpos.length() > ORB.rMax * 0.6 && out > -0.1) {
-            // 壁際で外を向いていたら「外向き成分だけ」打ち消して少し内へ＝中央を突っ切る長い直進になる
-            _rt.addScaledVector(_up, -(out + 0.35)).normalize();
-          }
-          spd = 58 + Math.random() * 10;
-        } else { // 3割はランダム方向へ振り回される
-          _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-          const out = _rt.dot(_up);
-          if (cpos.length() > ORB.rMax * 0.75 && out > 0) _rt.addScaledVector(_up, -(out + 0.4)).normalize();
-          spd = 45 + Math.random() * 18;
+      if (bousou) { // 暴走：壁の直前まで直進→「中心より深い」ランダム方向へターン(縦横両軸)→また直進
+        _up.copy(cpos).normalize();
+        if (cvel.length() < 30 || (cpos.length() > ORB.rMax - 3 && cvel.dot(_up) > 0)) {
+          _rt.copy(_up).multiplyScalar(-1);                    // 基準＝エリア中心の方向
+          steerAxis.set(-_up.y, _up.x, 0);                     // 中心方向に垂直な軸を作り…
+          if (steerAxis.lengthSq() < 1e-4) steerAxis.set(1, 0, 0);
+          _q.setFromAxisAngle(_up, Math.random() * Math.PI * 2);
+          steerAxis.normalize().applyQuaternion(_q);           // …その軸ごとランダムに回す＝縦も横も散る
+          _q.setFromAxisAngle(steerAxis, Math.random() * 0.8); // 中心から最大46°まで＝必ず中心より深い角度
+          _rt.applyQuaternion(_q);
+          cvel.copy(_rt).multiplyScalar(45 + Math.random() * 12);
+          diveT = 0; diving = true;
         }
-        cvel.copy(_rt).multiplyScalar(spd);
-        steerAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-        diveT = 0; diving = true;
       }
       const r = Math.max(0.001, cpos.length());
       const sp0 = cvel.length();
       if (sp0 > 3) { // ダイブ中：まず直進、やがてフリック方向へゆっくりじっくり旋回
         const w = Math.min(1, Math.max(0, (diveT - ORB.straightT) / ORB.rampT));
-        if (w > 0) { _q.setFromAxisAngle(steerAxis, ORB.turn * w * dt); cvel.applyQuaternion(_q); }
-        cvel.multiplyScalar(Math.pow(ORB.drag, dt));
+        if (w > 0 && !bousou) { _q.setFromAxisAngle(steerAxis, ORB.turn * w * dt); cvel.applyQuaternion(_q); }
+        if (!bousou) cvel.multiplyScalar(Math.pow(ORB.drag, dt)); // 暴走中は減速しない＝壁まで走り切る
       } else { // 漂い（今まで通りのランダム浮遊）
         cvel.addScaledVector(cpos, -ORB.K * dt);
         cvel.multiplyScalar(Math.pow(ORB.driftDrag, dt));
@@ -1929,7 +1920,7 @@ function loop(now) {
     } else if (diving) {
       if (speed > 3) { // 超スピード直進中：奥（進行方向）を見る
         _rt.copy(cvel).multiplyScalar(1 / speed);
-        viewTarget.lerp(_rt, Math.min(1, dt * ORB.turnSpd)).normalize();
+        viewTarget.lerp(_rt, Math.min(1, dt * (bousou ? 3 : ORB.turnSpd))).normalize(); // 暴走中はキビッと向き直す
       } else {         // 回頭フェーズ：フリック方向へ一定の向きにゆっくり回り続ける
         _q.setFromAxisAngle(steerAxis, ORB.turnSlow * dt);
         viewTarget.applyQuaternion(_q).normalize();
