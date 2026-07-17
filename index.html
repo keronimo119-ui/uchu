@@ -1204,7 +1204,6 @@ const cpos = new THREE.Vector3(), cvel = new THREE.Vector3(), camUp = new THREE.
 const viewTarget = new THREE.Vector3(), precAxis = new THREE.Vector3(0, 0, 1); // 見る向き＆歳差軸
 const steerAxis = new THREE.Vector3(1, 0, 0); // ダイブ後の回頭軸（フリック方向で決まる）
 let diveT = 9, diving = false, flickAX = 0, flickAY = 0; // ダイブ状態と、指を離すまでのフリック量の蓄積
-let bousou = false, pressTimer = 0; // 画面長押し=暴走モード（ランダム暴走移動を続ける・タップで解除）
 const _rt = new THREE.Vector3(), _up = new THREE.Vector3(), _q = new THREE.Quaternion();
 let camR = 12, gazeR = 12, wanderNext = 0;
 let wRoll = 0, roll = 0, wanderSpeed = 1.7;  // 左右の軽い傾きと、漂い/飛距離の速さ倍率(スライダー)
@@ -1228,7 +1227,6 @@ let lastUserT = -20, seekingBH = false;
 let bhOn = false, bhSeeded = false; // BHモード（隠し機能・初期OFF）
 
 function enterGaze() { // 今見ている向きを引き継いで地球モードへ
-  bousou = false;
   if (mode === 'orbit') {
     const ph = cpos.clone().normalize();
     const cth = Math.atan2(ph.y, ph.x), cph = Math.acos(Math.max(-1, Math.min(1, ph.z)));
@@ -1247,23 +1245,11 @@ canvas.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) {
     tapInfo = { x: e.clientX, y: e.clientY, t: performance.now() }; flickAX = 0; flickAY = 0; tourVX = 0; tourVY = 0; tourMoveT = e.timeStamp;
-    if (bousou) { bousou = false; toOrbitRest(); } // 暴走モードは画面に触れたら解除
-    else if (mode === 'orbit') { // 長押し(0.6秒・動かさない)で暴走モード開始
-      clearTimeout(pressTimer);
-      pressTimer = setTimeout(() => {
-        if (tapInfo && mode === 'orbit') {
-          bousou = true; tapInfo = null; diving = false;
-          if (navigator.vibrate) navigator.vibrate(30);
-          SFX.rockOn(); // 暴走のお供は激しいロック
-          wakeUI();
-        }
-      }, 600);
-    }
   }
   if (pointers.size === 2) {
     const a = [...pointers.values()];
     pinchD0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); fov0 = camera.fov; tourZoom0 = tourZoom;
-    tapInfo = null; clearTimeout(pressTimer);
+    tapInfo = null;
   }
   lastUserT = tNow; seekingBH = false; wakeUI();
 });
@@ -1306,7 +1292,6 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerup', e => {
   pointers.delete(e.pointerId);
-  clearTimeout(pressTimer);
   if (tapInfo && performance.now() - tapInfo.t < 450) {
     if (mode === 'tour') {
       if (tourWide) { // 引きビュー: タップ=その星の解説 / もう一度同じ星=接近 / 何もない所=解説を閉じる
@@ -1349,7 +1334,7 @@ canvas.addEventListener('pointerup', e => {
   }
   tapInfo = null; lastUserT = tNow; flickAX = 0; flickAY = 0;
 });
-canvas.addEventListener('pointercancel', e => { pointers.delete(e.pointerId); clearTimeout(pressTimer); });
+canvas.addEventListener('pointercancel', e => pointers.delete(e.pointerId));
 addEventListener('wheel', e => {
   camera.fov = Math.max(26, Math.min(95, camera.fov + e.deltaY * 0.02));
   camera.updateProjectionMatrix(); updateSizeUniform(); lastUserT = tNow;
@@ -1451,7 +1436,7 @@ $('bHist').onclick = () => { // 地球46億年の旅
   else {
     if (mode === 'gaze') exitGaze();
     if (mode === 'tour') exitTour();
-    mode = 'history'; seekingBH = false; seekCon = -1; bousou = false;
+    mode = 'history'; seekingBH = false; seekCon = -1;
     $('bHist').classList.add('on'); $('era').classList.add('show');
     card.classList.remove('show'); panelEl.classList.remove('open');
     histP = 0; eraIdx = -1; // いつも「誕生」から始まる
@@ -1701,7 +1686,6 @@ $('bBH').onclick = () => { // BHモード（隠し機能）：押した人だけ
   if (bhOn) {
     if (mode === 'history') exitHistory(); // BHが見えないモードにいたら遊泳へ戻して見せる（辻褄）
     if (mode === 'tour') exitTour();
-    bousou = false;
     SFX.boom(); // 深淵が目を覚ます音
     if (!bhSeeded) { bhSeeded = true; for (let i = 0; i < 60; i++) spawnStar(); }
     seekingBH = true; lastUserT = -20;
@@ -1713,7 +1697,7 @@ $('bTour').onclick = () => { // 太陽系めぐり
   else {
     if (mode === 'history') exitHistory();
     if (mode === 'gaze') exitGaze();
-    mode = 'tour'; seekingBH = false; seekCon = -1; bousou = false;
+    mode = 'tour'; seekingBH = false; seekCon = -1;
     $('bTour').classList.add('on');
     panelEl.classList.remove('open');
     tourCard(); // ようこそ（今いる天体の紹介）
@@ -1785,7 +1769,6 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
   scenes: { hScene, tScene, scene },    // 動作確認用：シーン走査（犯人探し等）
   tourWideSet: b => { tourWide = b; },  // 動作確認用：引き(ぜんたい)ビューの切替
   tourZoomSet: z => { tourZoom = z; },  // 動作確認用：引きのピンチ接近倍率
-  bousouSet: b => { bousou = b; if (!b) toOrbitRest(); }, // 動作確認用：暴走モード
   sndState: () => ({ on: !!snd, ctx: snd ? snd.ctx.state : '-', rock: !!(snd && snd.rock), chordRoot: snd ? snd.chord[0] : 0 }), // 動作確認用：音の状態
   sfx: SFX, // 動作確認用：効果音を直接鳴らす
   tourTick: s => { updateTour(s); tScene.updateMatrixWorld(true); }, // 動作確認用：描画ループなしで1コマ進める
@@ -1847,7 +1830,6 @@ function loop(now) {
 
   advanceSim(dt * SIM.speed);
   writeNbBuffers();
-  if (snd && snd.rock && !bousou) SFX.rockOff(); // どの経路で暴走が終わってもロックは必ず止まる
   flash *= Math.pow(0.03, Math.max(dt, dt * SIM.speed)); // 閃光の減衰
 
   // カメラ
@@ -1861,26 +1843,12 @@ function loop(now) {
       if (cpos.distanceTo(_rt) < 0.4) { seekingBH = false; lastUserT = tNow; }
     } else {
       diveT += dt;
-      if (bousou) { // 暴走：壁の直前まで直進→「中心より深い」ランダム方向へターン(縦横両軸)→また直進
-        _up.copy(cpos).normalize();
-        if (cvel.length() < 30 || (cpos.length() > ORB.rMax - 3 && cvel.dot(_up) > 0)) {
-          _rt.copy(_up).multiplyScalar(-1);                    // 基準＝エリア中心の方向
-          steerAxis.set(-_up.y, _up.x, 0);                     // 中心方向に垂直な軸を作り…
-          if (steerAxis.lengthSq() < 1e-4) steerAxis.set(1, 0, 0);
-          _q.setFromAxisAngle(_up, Math.random() * Math.PI * 2);
-          steerAxis.normalize().applyQuaternion(_q);           // …その軸ごとランダムに回す＝縦も横も散る
-          _q.setFromAxisAngle(steerAxis, Math.random() * 0.8); // 中心から最大46°まで＝必ず中心より深い角度
-          _rt.applyQuaternion(_q);
-          cvel.copy(_rt).multiplyScalar(45 + Math.random() * 12);
-          diveT = 0; diving = true;
-        }
-      }
       const r = Math.max(0.001, cpos.length());
       const sp0 = cvel.length();
       if (sp0 > 3) { // ダイブ中：まず直進、やがてフリック方向へゆっくりじっくり旋回
         const w = Math.min(1, Math.max(0, (diveT - ORB.straightT) / ORB.rampT));
-        if (w > 0 && !bousou) { _q.setFromAxisAngle(steerAxis, ORB.turn * w * dt); cvel.applyQuaternion(_q); }
-        if (!bousou) cvel.multiplyScalar(Math.pow(ORB.drag, dt)); // 暴走中は減速しない＝壁まで走り切る
+        if (w > 0) { _q.setFromAxisAngle(steerAxis, ORB.turn * w * dt); cvel.applyQuaternion(_q); }
+        cvel.multiplyScalar(Math.pow(ORB.drag, dt));
       } else { // 漂い（今まで通りのランダム浮遊）
         cvel.addScaledVector(cpos, -ORB.K * dt);
         cvel.multiplyScalar(Math.pow(ORB.driftDrag, dt));
@@ -1920,7 +1888,7 @@ function loop(now) {
     } else if (diving) {
       if (speed > 3) { // 超スピード直進中：奥（進行方向）を見る
         _rt.copy(cvel).multiplyScalar(1 / speed);
-        viewTarget.lerp(_rt, Math.min(1, dt * (bousou ? 3 : ORB.turnSpd))).normalize(); // 暴走中はキビッと向き直す
+        viewTarget.lerp(_rt, Math.min(1, dt * ORB.turnSpd)).normalize();
       } else {         // 回頭フェーズ：フリック方向へ一定の向きにゆっくり回り続ける
         _q.setFromAxisAngle(steerAxis, ORB.turnSlow * dt);
         viewTarget.applyQuaternion(_q).normalize();
@@ -2004,8 +1972,6 @@ function loop(now) {
         : `🪐 太陽系めぐり: ${tourBodies[tourIdx].name} ─ 左右フリック=隣へ・縦フリック=引き`;
     } else if (mode === 'gaze') {
       $('pos').textContent = '🌍 地球の夜空 ─ いま地上で見えるままの空';
-    } else if (bousou) {
-      $('pos').textContent = '🚀 暴走モード ─ 画面タップでおわる';
     } else {
       let ni = -1, nd2 = 1e18;
       const cp = camera.position;
