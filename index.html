@@ -1209,9 +1209,9 @@ let camR = 12, gazeR = 12, wanderNext = 0;
 let wRoll = 0, roll = 0, wanderSpeed = 1.7;  // 左右の軽い傾きと、漂い/飛距離の速さ倍率(スライダー)
 // フリックの法則: ①フリック方向へ少しホップした奥へ超スピード直進 ②勢いが尽きたら（限界到達含む）
 // “自分を中心に”フリック方向へゆっくり回頭し続け、中心をとらえたら旋回おわり。旋回中の再フリック=即再ダイブ。
-const ORB = { K: 0.006, rMin: 2, rMax: 42, drag: 0.78, driftDrag: 0.92, wallDrag: 0.3,
+const ORB = { K: 0.006, rMin: 2, rMax: 260, drag: 0.78, driftDrag: 0.92, wallDrag: 0.3,
   flickV: 0.13, vMax: 65, hopTilt: 0.21, straightT: 0.8, rampT: 1.2, turn: 0.08,
-  turnSpd: 1.5, turnSlow: 0.35 };
+  turnSpd: 1.5, turnSlow: 0.35 }; // rMax拡大260pc:実在星団すばる136pc圏内へ対応
 function setCPos(th, ph, r) { const s = Math.sin(ph); cpos.set(s * Math.cos(th), s * Math.sin(th), Math.cos(ph)).multiplyScalar(r); }
 function lookAlong() { // viewTarget(進行方向 or 中心)を見る。上ベクトルは連続に保ち反転を防ぐ
   camUp.addScaledVector(viewTarget, -camUp.dot(viewTarget));
@@ -1317,8 +1317,9 @@ canvas.addEventListener('pointerup', e => {
       const right = _rt.crossVectors(viewTarget, camUp).normalize(); // 画面右（順序重要：逆だと左右が鏡写しになる）
       _up.copy(right).multiplyScalar(flickAX).addScaledVector(camUp, -flickAY).normalize(); // フリックの世界方向
       steerAxis.crossVectors(viewTarget, _up).normalize();                                  // この軸で回頭=フリック方向へ回る
+      const r = cpos.length(); const s = 1 + r / 60; // 距離連動スピード：遠くほど速く・移動がだるくならない
       cvel.copy(viewTarget).addScaledVector(_up, ORB.hopTilt).normalize()                   // 進路=奥+少しホップ
-        .multiplyScalar(Math.min(ORB.vMax, mag * (camera.fov / 62) * ORB.flickV));
+        .multiplyScalar(Math.min(ORB.vMax * s, mag * (camera.fov / 62) * ORB.flickV * s));
       diveT = 0; diving = true;
       SFX.whoosh(Math.min(1, mag / 350)); // フリックの強さで風切り音
     }
@@ -1852,13 +1853,14 @@ function loop(now) {
       } else { // 漂い（今まで通りのランダム浮遊）
         cvel.addScaledVector(cpos, -ORB.K * dt);
         cvel.multiplyScalar(Math.pow(ORB.driftDrag, dt));
+        const s = 1 + r / 60; // 距離連動スピード：遠くほど速く・移動がだるくならない
         if (idle > 0) {
           if (t > wanderNext) {
             wanderNext = t + 5 + Math.random() * 7;
             precAxis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
             _rt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
             _rt.addScaledVector(cpos, -_rt.dot(cpos) / (r * r)); // 接線方向へ
-            if (_rt.lengthSq() > 1e-6) cvel.addScaledVector(_rt.normalize(), (0.5 + Math.random()) * wanderSpeed * idle);
+            if (_rt.lengthSq() > 1e-6) cvel.addScaledVector(_rt.normalize(), (0.5 + Math.random()) * wanderSpeed * idle * s);
             wRoll = (Math.random() - 0.5) * 0.26;
           }
           _q.setFromAxisAngle(precAxis, 0.06 * wanderSpeed * idle * dt);
