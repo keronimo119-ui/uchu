@@ -110,6 +110,21 @@
 HYG CSV と Stellarium index.json を落として scratchpad の process.js を実行
 （このREADMEの「使っているデータ」のURL参照。詳細は process.js 内コメント）。
 
+### starvel.js の生成（星の固有運動データ・機能1用）
+HYG Database と既存の stars.js から、星の速度データを生成します（単位: pc/百万年）。
+
+```bash
+# HYG Database v41 をダウンロード
+curl -s https://raw.githubusercontent.com/astronexus/HYG-Database/main/hyg/CURRENT/hygdata_v41.csv -o hygdata_v41.csv
+
+# starvel.js を生成
+node tools/gen-starvel.js stars.js hygdata_v41.csv starvel.js
+```
+
+詳細は `tools/gen-starvel.js` 冒頭のコメント参照。
+照合方法（単位方向ベクトル dot > 0.999995 + 見かけ等級 ±0.05）、
+単位変換（pc/年 → pc/百万年），オプション検証手順が記載されています。
+
 ## 次にやること（候補）
 1. ~~three.js をローカル同梱してオフライン化~~（2026-07-16完了）
 2. Android アプリ化（mochi と同じ WebView/TWA 方式）＋ AdMob バナー
