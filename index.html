@@ -1391,108 +1391,47 @@ function rad2deg(rad) { return rad * 180 / Math.PI; }
 function norm180(deg) { return ((deg + 180) % 360 + 360) % 360 - 180; }
 function norm360(deg) { return ((deg % 360) + 360) % 360; }
 
+// 軌道要素→太陽中心黄道直交座標
+// elem = [a,e,I,L,peri(ϖ),node(Ω), 各rate]  → {X,Y,Z, r}(au)
+function helioVec(el, T) {
+  const a = el[0] + el[6] * T, e = el[1] + el[7] * T, inc = el[2] + el[8] * T;
+  const L = el[3] + el[9] * T, peri = el[4] + el[10] * T, node = el[5] + el[11] * T;
+  const M = deg2rad(norm180(L - peri));
+  let E = M;
+  for (let i = 0; i < 12; i++) {
+    const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    E -= dE; if (Math.abs(dE) < 1e-10) break;
+  }
+  const xo = a * (Math.cos(E) - e), yo = a * Math.sqrt(1 - e * e) * Math.sin(E);
+  const w = deg2rad(peri - node), iR = deg2rad(inc), nR = deg2rad(node);
+  const xw = xo * Math.cos(w) - yo * Math.sin(w), yw = xo * Math.sin(w) + yo * Math.cos(w);
+  const yi = yw * Math.cos(iR), zi = yw * Math.sin(iR);
+  const X = xw * Math.cos(nR) - yi * Math.sin(nR);
+  const Y = xw * Math.sin(nR) + yi * Math.cos(nR);
+  const Z = zi;
+  return { X, Y, Z, r: Math.sqrt(X * X + Y * Y + Z * Z) };
+}
+
 function planetPositions(date) {
   const JD = date.getTime() / 86400000 + 2440587.5;
   const T = (JD - 2451545.0) / 36525;
 
-  // 地球の位置を先に計算
-  const earthElem = PL_ELEM['地球'];
-  const earthA = earthElem[0] + earthElem[6] * T;
-  const earthE = earthElem[1] + earthElem[7] * T;
-  const earthI = earthElem[2] + earthElem[8] * T;
-  const earthL = earthElem[3] + earthElem[9] * T;
-  const earthOmega = earthElem[4] + earthElem[10] * T;
-  const earthOmegaN = earthElem[5] + earthElem[11] * T;
-  const earthM = norm180(earthL - earthOmega);
+  // 地球の位置
+  const E3 = helioVec(PL_ELEM['地球'], T);
+  const eps = deg2rad(23.43928);
 
-  let earthE_anom = earthM * Math.PI / 180;
-  for (let i = 0; i < 8; i++) {
-    earthE_anom = earthM * Math.PI / 180 + earthE * Math.sin(earthE_anom);
-  }
-  const earthX_orb = earthA * (Math.cos(earthE_anom) - earthE);
-  const earthY_orb = earthA * Math.sqrt(1 - earthE * earthE) * Math.sin(earthE_anom);
-
-  // 黄道直交座標へ回転（ω→I→Ω）
-  const omegaRad = deg2rad(earthOmega);
-  const iRad = deg2rad(earthI);
-  const omegaNRad = deg2rad(earthOmegaN);
-  const cosOm = Math.cos(omegaRad), sinOm = Math.sin(omegaRad);
-  const cosI = Math.cos(iRad), sinI = Math.sin(iRad);
-  const cosOmN = Math.cos(omegaNRad), sinOmN = Math.sin(omegaNRad);
-
-  // ω 回転（近日点引数）
-  let earthX_ecl = earthX_orb;
-  let earthY_ecl = earthY_orb * cosOm - 0 * sinOm;
-  let earthZ_ecl = earthY_orb * sinOm + 0 * cosOm;
-
-  // I 回転（傾斜）X軸を中心
-  const temp_y = earthY_ecl;
-  earthY_ecl = temp_y * cosI - earthZ_ecl * sinI;
-  earthZ_ecl = temp_y * sinI + earthZ_ecl * cosI;
-
-  // Ω 回転（昇交点経度）Z軸を中心
-  const temp_x = earthX_ecl;
-  earthX_ecl = temp_x * cosOmN - earthY_ecl * sinOmN;
-  earthY_ecl = temp_x * sinOmN + earthY_ecl * cosOmN;
-
-  // 太陽の黄経（地球座標の逆向き）
-  const sunEcLon = norm360(Math.atan2(earthY_ecl, earthX_ecl) * 180 / Math.PI + 180);
+  // 太陽の見かけ黄経（地球座標の逆向き）
+  const sunEcLon = norm360(Math.atan2(E3.Y, E3.X) * 180 / Math.PI + 180);
 
   const planets = [];
   const planetNames = ['水星', '金星', '火星', '木星', '土星'];
 
   for (const name of planetNames) {
-    const elem = PL_ELEM[name];
-    const a = elem[0] + elem[6] * T;
-    const e = elem[1] + elem[7] * T;
-    const I = elem[2] + elem[8] * T;
-    const L = elem[3] + elem[9] * T;
-    const omega = elem[4] + elem[10] * T;
-    const omegaN = elem[5] + elem[11] * T;
-    const M = norm180(L - omega);
-
-    // Kepler反復
-    let E_anom = M * Math.PI / 180;
-    for (let i = 0; i < 8; i++) {
-      E_anom = M * Math.PI / 180 + e * Math.sin(E_anom);
-    }
-
-    const x_orb = a * (Math.cos(E_anom) - e);
-    const y_orb = a * Math.sqrt(1 - e * e) * Math.sin(E_anom);
-
-    // 黄道座標へ回転
-    const omegaRad = deg2rad(omega);
-    const iRad = deg2rad(I);
-    const omegaNRad = deg2rad(omegaN);
-    const cosOmP = Math.cos(omegaRad), sinOmP = Math.sin(omegaRad);
-    const cosIP = Math.cos(iRad), sinIP = Math.sin(iRad);
-    const cosOmNP = Math.cos(omegaNRad), sinOmNP = Math.sin(omegaNRad);
-
-    // ω 回転
-    let x_ecl = x_orb;
-    let y_ecl = y_orb * cosOmP;
-    let z_ecl = y_orb * sinOmP;
-
-    // I 回転
-    const temp_yP = y_ecl;
-    y_ecl = temp_yP * cosIP - z_ecl * sinIP;
-    z_ecl = temp_yP * sinIP + z_ecl * cosIP;
-
-    // Ω 回転
-    const temp_xP = x_ecl;
-    x_ecl = temp_xP * cosOmNP - y_ecl * sinOmNP;
-    y_ecl = temp_xP * sinOmNP + y_ecl * cosOmNP;
-
-    // 地心黄道ベクトル
-    const qx = x_ecl - earthX_ecl;
-    const qy = y_ecl - earthY_ecl;
-    const qz = z_ecl - earthZ_ecl;
-
+    const P = helioVec(PL_ELEM[name], T);
+    const qx = P.X - E3.X, qy = P.Y - E3.Y, qz = P.Z - E3.Z;
     const dist_au = Math.sqrt(qx * qx + qy * qy + qz * qz);
-    const r_au = a; // 太陽距離
 
     // 黄道→赤道
-    const eps = 23.43928 * Math.PI / 180;
     const xq = qx;
     const yq = qy * Math.cos(eps) - qz * Math.sin(eps);
     const zq = qy * Math.sin(eps) + qz * Math.cos(eps);
@@ -1501,26 +1440,24 @@ function planetPositions(date) {
     const dec = Math.asin(zq / dist_au);
     const ecLon = norm360(Math.atan2(qy, qx) * 180 / Math.PI);
 
-    // 位相角・見かけ等級
-    const R_au = Math.sqrt(earthX_ecl * earthX_ecl + earthY_ecl * earthY_ecl + earthZ_ecl * earthZ_ecl);
-    const cos_phase = (r_au * r_au + dist_au * dist_au - R_au * R_au) / (2 * r_au * dist_au);
+    // 位相角・見かけ等級（P.r = 太陽距離）
+    const cos_phase = (P.r * P.r + dist_au * dist_au - E3.r * E3.r) / (2 * P.r * dist_au);
     const alpha = Math.acos(Math.max(-1, Math.min(1, cos_phase))) * 180 / Math.PI;
 
     let mag;
-    const ar = 5 * Math.log10(r_au * dist_au);
+    const ar = 5 * Math.log10(P.r * dist_au);
     if (name === '水星') mag = -0.36 + ar + 0.038*alpha - 0.000273*alpha*alpha + 0.000002*alpha*alpha*alpha;
     else if (name === '金星') mag = -4.34 + ar + 0.0009*alpha + 0.000239*alpha*alpha - 0.00000065*alpha*alpha*alpha;
     else if (name === '火星') mag = -1.51 + ar + 0.016*alpha;
     else if (name === '木星') mag = -9.25 + ar + 0.005*alpha;
-    else mag = -8.88 + ar; // 土星
+    else mag = -8.88 + ar; // 土星（環傾き省略で±0.4等誤差）
 
-    // 離角（太陽からの角距離）
-    const sunRA = Math.atan2(earthY_ecl, earthX_ecl);
-    const sunDec = Math.asin(earthZ_ecl / R_au);
-    const cos_elong = Math.sin(sunDec) * Math.sin(dec) + Math.cos(sunDec) * Math.cos(dec) * Math.cos(ra - sunRA);
-    const elong = Math.acos(Math.max(-1, Math.min(1, cos_elong))) * 180 / Math.PI;
+    // 離角（地心黄道ベクトル同士の角）
+    const sx = -E3.X, sy = -E3.Y, sz = -E3.Z;
+    const cosEl = (qx*sx + qy*sy + qz*sz) / (dist_au * E3.r);
+    const elong = rad2deg(Math.acos(Math.max(-1, Math.min(1, cosEl))));
 
-    // 星座判定
+    // 星座判定（黄道上の近似）
     let con = 'うお座';
     for (let i = 0; i < ZD_CON.length - 1; i++) {
       if (ecLon >= ZD_CON[i].lon && ecLon < ZD_CON[i+1].lon) {
@@ -1544,7 +1481,7 @@ function planetPositions(date) {
     });
   }
 
-  // 太陽情報を最後に追加
+  // 太陽情報
   planets.push({
     key: 'sun',
     name: '太陽',
@@ -1553,6 +1490,83 @@ function planetPositions(date) {
   });
 
   return planets;
+}
+
+// 月齢を計算（0〜29.5）
+function getMoonAge(date) {
+  const JD = date.getTime() / 86400000 + 2440587.5;
+  return ((JD - 2451550.1) % 29.530588 + 29.530588) % 29.530588;
+}
+
+// 月齢から呼び名を生成
+function getMoonPhaseName(age) {
+  if (age <= 1.5) return '新月';
+  if (age <= 5.5) return '三日月のころ';
+  if (age <= 9.5) return '上弦を過ぎたころ';
+  if (age <= 13) return '十三夜のころ';
+  if (age <= 16.5) return '満月のころ';
+  if (age <= 20) return '寝待月のころ';
+  if (age <= 24) return '下弦のころ';
+  return '有明月のころ';
+}
+
+// 惑星カード表示関数（重複排除）
+function showPlanetCard(pl, planets) {
+  const mag_txt = pl.mag.toFixed(1);
+  const dist_text = (pl.dist * 1.495979).toFixed(2) + '億km';
+
+  let vis_txt;
+  if (pl.elong < 15) {
+    vis_txt = '太陽に近すぎて、いまは見えません';
+  } else if (pl.elong >= 150) {
+    vis_txt = 'ひと晩じゅう見えます';
+  } else {
+    const diff = norm360(pl.ecLon - planets[5].ecLon); // 太陽との黄経差
+    vis_txt = (diff < 180) ? '夕方の西の空に見えます' : '明け方の東の空に見えます';
+  }
+
+  const info = {
+    '水星': '太陽のいちばん近くをまわる、いちばん小さな惑星。夕方か明け方のわずかな時間だけ姿を見せます',
+    '金星': '厚い雲が太陽の光をはね返すので、夜空の星のなかでいちばん明るく輝きます',
+    '火星': '赤いのは、地面いちめんが錆びた鉄の色をしているからです',
+    '木星': '太陽系でいちばん大きな惑星。地球が1300個入る大きさです',
+    '土星': '氷のかけらでできた輪をまとった惑星。輪の厚さは数十メートルしかありません'
+  };
+
+  card.innerHTML = `<div class="n" style="color:rgb(${(PL_COLOR[pl.name][0]*255)|0},${(PL_COLOR[pl.name][1]*255)|0},${(PL_COLOR[pl.name][2]*255)|0})">${pl.name} ─ いま ${pl.con}に</div>
+    <div class="s">${mag_txt}等 ／ 地球から ${dist_text}</div>
+    <div class="d">${vis_txt}</div>
+    <div class="y">${info[pl.name]}</div>`;
+  SFX.chime();
+  card.classList.add('show');
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => card.classList.remove('show'), 10000);
+}
+
+// 「今夜の見どころ」の情報生成
+function getTonightInfo(date, planets) {
+  const age = getMoonAge(date);
+  const phaseName = getMoonPhaseName(age);
+  const vis = planets.slice(0, 5).filter(p => p.vis);
+
+  let plan_d = '';
+  if (vis.length === 0) {
+    plan_d = 'いまは惑星が見えにくいシーズンです。';
+  } else {
+    const evening = vis.filter(p => norm360(p.ecLon - planets[5].ecLon) < 180);
+    const morning = vis.filter(p => norm360(p.ecLon - planets[5].ecLon) >= 180);
+
+    const evening_txt = evening.length > 0 ? '夕方の西の空に ' + evening.map(p => p.name + (p.elong >= 150 ? 'ひと晩' : '')).join('・') : '';
+    const morning_txt = morning.length > 0 ? '明け方の東の空に ' + morning.map(p => p.name + (p.elong >= 150 ? 'ひと晩' : '')).join('・') : '';
+    plan_d = [evening_txt, morning_txt].filter(Boolean).join(' ／ ');
+    if (!plan_d) plan_d = '惑星が見えます。';
+  }
+
+  return {
+    age: age.toFixed(1),
+    phaseName: phaseName,
+    plan_d: plan_d
+  };
 }
 
 let planetPoints = null;
@@ -1586,7 +1600,7 @@ function updatePlanetSky() {
       colors[i*3] = col[0];
       colors[i*3+1] = col[1];
       colors[i*3+2] = col[2];
-      phases[i] = Math.random() * Math.PI * 2;
+      phases[i] = Math.random();
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -1599,16 +1613,15 @@ function updatePlanetSky() {
     planetPoints.renderOrder = 5;
     scene.add(planetPoints);
   } else {
-    const pos = planetPoints.geometry.attributes.position.array;
+    const pa = planetPoints.geometry.attributes.position.array;
     const mags = planetPoints.geometry.attributes.aMag.array;
-    const phases = planetPoints.geometry.attributes.aPhase.array;
 
     for (let i = 0; i < 5; i++) {
       const pl = planets[i];
       const dist = 100;
-      pos[i*3] = Math.cos(pl.dec) * Math.cos(pl.ra) * dist;
-      pos[i*3+1] = Math.cos(pl.dec) * Math.sin(pl.ra) * dist;
-      pos[i*3+2] = Math.sin(pl.dec) * dist;
+      pa[i*3] = Math.cos(pl.dec) * Math.cos(pl.ra) * dist;
+      pa[i*3+1] = Math.cos(pl.dec) * Math.sin(pl.ra) * dist;
+      pa[i*3+2] = Math.sin(pl.dec) * dist;
       mags[i] = pl.mag;
     }
     planetPoints.geometry.attributes.position.needsUpdate = true;
@@ -1634,29 +1647,16 @@ function pickStar(px, py) {
     const plPos = planetPoints.geometry.attributes.position.array;
     const planets = __planets_cache;
     for (let i = 0; i < 5 && i < planets.length; i++) {
-      const dx = plPos[i*3] + camera.position.x - camera.position.x;
-      const dy = plPos[i*3+1] + camera.position.y - camera.position.y;
-      const dz = plPos[i*3+2] + camera.position.z - camera.position.z;
+      const dx = plPos[i*3];
+      const dy = plPos[i*3+1];
+      const dz = plPos[i*3+2];
       const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
       if (len < 0.25) continue;
       const dot = (dx*ray.x + dy*ray.y + dz*ray.z) / len;
       if (dot < 0.996) continue;
       const ang = Math.acos(Math.min(1, dot));
       if (ang <= limit) {
-        // 惑星カード表示
-        const pl = planets[i];
-        const mag_txt = pl.mag.toFixed(1);
-        const dist_km = (pl.dist * 149597870.7).toLocaleString('ja-JP', {maximumFractionDigits: 0});
-        const elong_txt = pl.elong.toFixed(1);
-        const vis_txt = pl.vis ? (pl.elong >= 150 ? 'ひと晩じゅう見えます' : (norm360(pl.ecLon - planets[5].ecLon) < 180 ? '夕方の西の空に' : '明け方の東の空に')) : '太陽に近すぎて見えません';
-        card.innerHTML = `<div class="n" style="color:rgb(${(PL_COLOR[pl.name][0]*255)|0},${(PL_COLOR[pl.name][1]*255)|0},${(PL_COLOR[pl.name][2]*255)|0})">${pl.name} ─ いま ${pl.con}に</div>
-          <div class="s">${mag_txt}等 ／ 地球から ${(pl.dist*149597870.7/1e9).toFixed(1)}万km</div>
-          <div class="d">離角 ${elong_txt}° 太陽から</div>
-          <div class="y">${vis_txt}</div>`;
-        SFX.chime();
-        card.classList.add('show');
-        clearTimeout(cardTimer);
-        cardTimer = setTimeout(() => card.classList.remove('show'), 10000);
+        showPlanetCard(planets[i], planets);
         return;
       }
     }
@@ -2319,30 +2319,12 @@ setTimeout(() => {
   updatePlanetSky();
   const planets = __planets_cache;
   if (planets.length < 6) return;
-
   const date = __planetDate || new Date();
-  const JD = date.getTime() / 86400000 + 2440587.5;
-  const age = ((JD - 2451550.1) % 29.530588 + 29.530588) % 29.530588;
-  let moon_phase = '新月';
-  if (age > 1.5 && age <= 5.5) moon_phase = '三日月のころ';
-  else if (age > 5.5 && age <= 9.5) moon_phase = '上弦を過ぎたころ';
-  else if (age > 9.5 && age <= 13) moon_phase = '十三夜のころ';
-  else if (age > 13 && age <= 16.5) moon_phase = '満月のころ';
-  else if (age > 16.5 && age <= 20) moon_phase = '寝待月のころ';
-  else if (age > 20 && age <= 24) moon_phase = '下弦のころ';
-  else if (age > 24) moon_phase = '有明月のころ';
-
-  const vis = planets.slice(0, 5).filter(p => p.vis);
-  let vis_txt = '';
-  if (vis.length === 0) vis_txt = 'いまは惑星が見えにくいシーズンです。';
-  else {
-    vis_txt = vis.map(p => p.name + (p.elong >= 150 ? '（ひと晩見）' : '')).join('・') + 'が見えます。';
-  }
-
+  const info = getTonightInfo(date, planets);
   card.innerHTML = `<div class="n" style="color:#d0d0e0">今夜の見どころ</div>
-    <div class="s">月齢 ─ ${moon_phase}</div>
-    <div class="d">惑星 ─ ${vis_txt}</div>
-    <div class="y">星空は毎晩、少しずつ変わっていきます。</div>`;
+    <div class="s">月齢 ${info.age} ─ ${info.phaseName}</div>
+    <div class="d">${info.plan_d}</div>
+    <div class="y">明るい点をタップすると、その惑星のいまがわかります</div>`;
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 12000);
@@ -2371,25 +2353,9 @@ window.__U.planets = () => {
 
 window.__U.tonight = () => {
   const date = __planetDate || new Date();
-  const JD = date.getTime() / 86400000 + 2440587.5;
-  const age = ((JD - 2451550.1) % 29.530588 + 29.530588) % 29.530588;
-  let moon_phase = '新月';
-  if (age > 1.5 && age <= 5.5) moon_phase = '三日月のころ';
-  else if (age > 5.5 && age <= 9.5) moon_phase = '上弦を過ぎたころ';
-  else if (age > 9.5 && age <= 13) moon_phase = '十三夜のころ';
-  else if (age > 13 && age <= 16.5) moon_phase = '満月のころ';
-  else if (age > 16.5 && age <= 20) moon_phase = '寝待月のころ';
-  else if (age > 20 && age <= 24) moon_phase = '下弦のころ';
-  else if (age > 24) moon_phase = '有明月のころ';
-
   const planets = __planets_cache;
-  const vis = planets.slice(0, 5).filter(p => p.vis);
-  let vis_txt = '';
-  if (vis.length === 0) vis_txt = 'いまは惑星が見えにくいシーズンです。';
-  else {
-    vis_txt = vis.map(p => p.name + (p.elong >= 150 ? '（ひと晩見）' : '')).join('・') + 'が見えます。';
-  }
-  return `月齢 ${moon_phase}\n惑星 ${vis_txt}`;
+  const info = getTonightInfo(date, planets);
+  return `月齢 ${info.age} ${info.phaseName}\n${info.plan_d}`;
 };
 
 window.__U.setPlanetDate = (dateStr) => {
@@ -2407,18 +2373,7 @@ window.__U.planetPick = (name) => {
   const planets = __planets_cache;
   const idx = planets.findIndex(p => p.name === name);
   if (idx >= 0 && idx < 5) {
-    const pl = planets[idx];
-    const mag_txt = pl.mag.toFixed(1);
-    const elong_txt = pl.elong.toFixed(1);
-    const vis_txt = pl.vis ? (pl.elong >= 150 ? 'ひと晩じゅう見えます' : (norm360(pl.ecLon - planets[5].ecLon) < 180 ? '夕方の西の空に' : '明け方の東の空に')) : '太陽に近すぎて見えません';
-    card.innerHTML = `<div class="n" style="color:rgb(${(PL_COLOR[pl.name][0]*255)|0},${(PL_COLOR[pl.name][1]*255)|0},${(PL_COLOR[pl.name][2]*255)|0})">${pl.name} ─ いま ${pl.con}に</div>
-      <div class="s">${mag_txt}等 ／ 地球から ${(pl.dist*149597870.7/1e9).toFixed(1)}万km</div>
-      <div class="d">離角 ${elong_txt}° 太陽から</div>
-      <div class="y">${vis_txt}</div>`;
-    SFX.chime();
-    card.classList.add('show');
-    clearTimeout(cardTimer);
-    cardTimer = setTimeout(() => card.classList.remove('show'), 10000);
+    showPlanetCard(planets[idx], planets);
   }
 };
 
