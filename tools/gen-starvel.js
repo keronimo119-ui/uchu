@@ -14,7 +14,18 @@
  *   2. HYG の星と比較：dot product > 0.999995 かつ見かけ等級差 ±0.05
  *   3. 距離が既知の星（r < 1900pc）については、座標差も 0.02pc 以内を確認
  *   4. マッチした星の速度（vx,vy,vz）を単位変換（pc/年 → pc/百万年 = ×1e6）
- *   5. 未マッチの星と距離不明の星（r > 1900pc）は [0,0,0] に設定
+ *
+ * 速度の処理（重要・実在性確保）:
+ *   5a. 距離不明の星（r > 1900pc）は [0,0,0] に設定
+ *       理由：アプリ側で r>1900pc の星は「方向だけ本物・距離は架空の2000pc」に置いてある。
+ *             HYG は距離不明星を 10万pc に置くため、そこから計算した v は
+ *             「架空の距離に基づく架空の動き」になり、アプリの大原則に違反。
+ *             「動きが分からない星」として正直に 0 で扱うのが正解。
+ *   5b. 速度の上限チェック：|v| > 600 km/s の星も [0,0,0]
+ *       理由：実在の星の空間速度は最速級（超高速度星）でも 1000 km/s 程度。
+ *             HYG の超過値は視差の測定誤差による暴走。視差誤差を持ち込まないため
+ *             600 km/s （≈ 0.000614 pc/年）を上限とし、超えたら 0 に。
+ *   6. 未マッチの星も [0,0,0]
  *
  * 出力ファイル:
  *   starvel.js - window.UCHU_DATA.vel = [[vx,vy,vz], ...] (pc/百万年・小数4桁)
@@ -23,6 +34,10 @@
 
 const fs = require('fs');
 const path = require('path');
+
+// 速度上限（cm/s 単位で管理）
+const SPEED_LIMIT_KM_S = 600; // km/s
+const SPEED_LIMIT_PC_PER_YEAR = SPEED_LIMIT_KM_S / 977792;
 
 // CSV パース（ダブルクォート対応）
 function parseCSV(csvText) {
@@ -120,6 +135,7 @@ async function main() {
   const vyIdx = header.indexOf('vy');
   const vzIdx = header.indexOf('vz');
   const distIdx = header.indexOf('dist');
+  const properIdx = header.indexOf('proper');
 
   if ([idIdx, xIdx, yIdx, zIdx, magIdx, ciIdx, vxIdx, vyIdx, vzIdx, distIdx].some(i => i === -1)) {
     console.error('CSV header mismatch');
@@ -144,18 +160,19 @@ async function main() {
     const vy = parseFloat(fields[vyIdx]);
     const vz = parseFloat(fields[vzIdx]);
     const dist = parseFloat(fields[distIdx]);
+    const proper = properIdx >= 0 ? fields[properIdx] : '';
 
     if (!isFinite(x) || !isFinite(y) || !isFinite(z) || !isFinite(mag)) continue;
 
     hygStars.push({
-      id, x, y, z, mag, ci, vx, vy, vz, dist,
+      id, x, y, z, mag, ci, vx, vy, vz, dist, proper,
       unitDir: unitVector(x, y, z)
     });
   }
   console.log(`Loaded ${hygStars.length} stars from HYG`);
 
   // 照合（格子を使った最適化）
-  const GRID_SIZE = 20; // 格子セルのサイズ（単位ベクトル空間）
+  const GRID_SIZE = 20;
   const hygGrid = new Map();
 
   for (const hygStar of hygStars) {
@@ -171,11 +188,15 @@ async function main() {
 
   console.log(`Grid created with ${hygGrid.size} cells`);
 
-  // 速度配列を初期化（0,0,0 = 未マッチ）
+  // 速度配列を初期化（0,0,0 = 未マッチ/除外）
   const velocities = new Array(stars.length).fill(null).map(() => [0, 0, 0]);
-  let matched = 0;
-  let unmatched = 0;
-  let zeroVel = 0;
+  const stats = {
+    matched: 0,
+    unmatched: 0,
+    distanceUnknown: 0,
+    speedExceeded: 0
+  };
+  const allSpeeds = []; // 速度の集計用（統計・有名星・top 5）
 
   console.log('Matching stars...');
   for (let i = 0; i < stars.length; i++) {
@@ -185,6 +206,13 @@ async function main() {
     const r = Math.sqrt(x * x + y * y + z * z);
     const starUnitDir = unitVector(x, y, z);
     const [ux, uy, uz] = starUnitDir;
+
+    // 距離不明の星（r > 1900pc）は [0,0,0] にする
+    if (r > 1900) {
+      stats.distanceUnknown++;
+      allSpeeds.push({ index: i, speed: 0, reason: 'distance-unknown' });
+      continue;
+    }
 
     // 格子検索（周辺セルも含める）
     let candidates = [];
@@ -213,7 +241,7 @@ async function main() {
         const magDiff = Math.abs(mag - hygStar.mag);
         if (magDiff <= 0.05) {
           // 距離が既知なら座標差も確認
-          if (r < 1900 && isFinite(hygStar.dist)) {
+          if (isFinite(hygStar.dist)) {
             const coordDist = distance(x, y, z, hygStar.x, hygStar.y, hygStar.z);
             if (coordDist > 0.02) continue;
           }
@@ -225,22 +253,36 @@ async function main() {
     }
 
     if (bestMatch) {
-      // 速度変換：pc/年 → pc/百万年
-      const scale = 1e6;
-      velocities[i] = [
-        parseFloat((bestMatch.vx * scale).toFixed(4)),
-        parseFloat((bestMatch.vy * scale).toFixed(4)),
-        parseFloat((bestMatch.vz * scale).toFixed(4))
-      ];
-      matched++;
+      // 速度を pc/年 で計算してから上限チェック
+      const speedPcPerYear = Math.sqrt(bestMatch.vx * bestMatch.vx + bestMatch.vy * bestMatch.vy + bestMatch.vz * bestMatch.vz);
+
+      if (speedPcPerYear > SPEED_LIMIT_PC_PER_YEAR) {
+        // 速度が上限を超えた場合は [0,0,0]
+        stats.speedExceeded++;
+        allSpeeds.push({ index: i, speed: 0, reason: 'speed-exceeded', original: speedPcPerYear * 977792 });
+      } else {
+        // 速度を pc/百万年 に変換
+        const scale = 1e6;
+        velocities[i] = [
+          parseFloat((bestMatch.vx * scale).toFixed(4)),
+          parseFloat((bestMatch.vy * scale).toFixed(4)),
+          parseFloat((bestMatch.vz * scale).toFixed(4))
+        ];
+        stats.matched++;
+        allSpeeds.push({
+          index: i,
+          speed: speedPcPerYear * 977792,
+          reason: 'matched',
+          proper: bestMatch.proper,
+          vx: bestMatch.vx,
+          vy: bestMatch.vy,
+          vz: bestMatch.vz
+        });
+      }
     } else {
       // 未マッチ
-      if (r > 1900) {
-        zeroVel++; // 距離不明の星
-      } else {
-        unmatched++;
-      }
-      velocities[i] = [0, 0, 0];
+      stats.unmatched++;
+      allSpeeds.push({ index: i, speed: 0, reason: 'unmatched' });
     }
 
     if ((i + 1) % 1000 === 0) {
@@ -248,33 +290,36 @@ async function main() {
     }
   }
 
-  console.log(`Matching complete: ${matched} matched, ${unmatched} unmatched, ${zeroVel} distance-unknown`);
+  console.log(`\nMatching complete:`);
+  console.log(`  Matched: ${stats.matched}`);
+  console.log(`  Unmatched: ${stats.unmatched}`);
+  console.log(`  Distance unknown (r > 1900pc): ${stats.distanceUnknown}`);
+  console.log(`  Speed exceeded (|v| > ${SPEED_LIMIT_KM_S} km/s): ${stats.speedExceeded}`);
 
   // starvel.js を生成
   const output = `window.UCHU_DATA.vel=${JSON.stringify(velocities)};`;
   fs.writeFileSync(outputPath, output, 'utf8');
-  console.log(`Written to ${outputPath} (${Math.round(fs.statSync(outputPath).size / 1024)}KB)`);
+  const fileSize = Math.round(fs.statSync(outputPath).size / 1024);
+  console.log(`Written to ${outputPath} (${fileSize}KB)`);
 
   // 検算: 速度の統計
-  // starvel.js の値は pc/百万年なので、検算時は pc/年 に逆算してから km/s に変換
-  const speeds = velocities
-    .map(v => Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]))
-    .filter(s => s > 0)
+  const speeds = allSpeeds
+    .filter(s => s.speed > 0)
+    .map(s => s.speed)
     .sort((a, b) => a - b);
 
-  const speedsKmS = speeds.map(s => {
-    const vPcPerYear = s / 1e6; // pc/百万年 → pc/年
-    return vPcPerYear * 977792; // pc/年 → km/s
-  });
-  const median = speedsKmS[Math.floor(speedsKmS.length / 2)];
+  const median = speeds[Math.floor(speeds.length / 2)];
+  const maxSpeed = Math.max(...speeds);
 
   console.log(`\n【検算結果】`);
-  console.log(`速度範囲: ${Math.min(...speedsKmS).toFixed(2)} ～ ${Math.max(...speedsKmS).toFixed(2)} km/s`);
-  console.log(`中央値: ${median.toFixed(2)} km/s`);
-  console.log(`件数: 照合 ${matched} / 未マッチ ${unmatched} / 距離不明 ${zeroVel}`);
+  console.log(`件数: ${allSpeeds.length} 件`);
+  console.log(`  > [0,0,0]: ${allSpeeds.filter(s => s.speed === 0).length}`);
+  console.log(`    - 照合できず: ${stats.unmatched}`);
+  console.log(`    - 距離不明: ${stats.distanceUnknown}`);
+  console.log(`    - 速度超過: ${stats.speedExceeded}`);
+  console.log(`速度: 中央値 ${median.toFixed(2)} km/s, 最大値 ${maxSpeed.toFixed(2)} km/s`);
 
   // 有名星の速度確認（HYG から直接検索）
-  const properIdx = header.indexOf('proper');
   const famousSearches = [
     { name: 'Sirius', pattern: /sirius/i },
     { name: 'Arcturus', pattern: /arcturus/i },
@@ -301,6 +346,23 @@ async function main() {
       console.log(`  ${famous.name}: 見つかりません`);
     }
   }
+
+  // 上位5個の高速星を表示
+  console.log('\n【上位5個の高速星】');
+  const topStars = allSpeeds
+    .filter(s => s.proper && s.proper.trim().length > 0)
+    .sort((a, b) => b.speed - a.speed)
+    .slice(0, 5);
+
+  for (const star of topStars) {
+    console.log(`  ${star.proper}: ${star.speed.toFixed(2)} km/s`);
+  }
+
+  if (topStars.length === 0) {
+    console.log('  （有名星なし）');
+  }
+
+  console.log(`\nFile size: ${fileSize}KB`);
 }
 
 main().catch(err => {
