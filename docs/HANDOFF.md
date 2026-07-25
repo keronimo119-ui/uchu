@@ -25,6 +25,8 @@
   orbit/history/tourでは非表示(太陽の光に埋もれるのが本物)。星座は**黄道上の境界での近似判定**。
   検証: `__U.planets()` `__U.tonight()` `__U.setPlanetDate(ISO)` `__U.planetPick(名)` `__U.planetTick()`。
   太陽黄経の検算=2026-07-25T12Z→122.19°、2000-01-01T12Z→280.38°。設計書はdocs/plans/2026-07-25-。
+  **実機(XQ-CC44)確認済み**: 金星に視線を合わせてタップ→「金星 ─ いま しし座に／-4.1等 ／
+  地球から 1.27億km／夕方の西の空に見えます」。実際の2026年7月下旬の空(金星=しし座・木星=合)と一致。
 - UI: モードボタン等は3秒で自動消去(タップ復帰)。左端に縦の「遊泳速度」スライダー(漂い0.4〜4倍・遊泳中のみ)。
 - 🔍星座図鑑88件、星タップカード、太陽タップ、現在地HUD、●BH隠しモード。
 - 音(2026-07-16夜・第2版): 和音進行(Am9→F→C→G6)+操作連動SFX(`SFX.*`: whoosh/chime/arrive/boom)+
@@ -64,6 +66,13 @@
 - プレビュー: `.claude/launch.json` の `uchu-app`（port 8790、`serve.ps1`はlocalhost専用）。
 - スマホ表示: `adb -s HQ62CQ0DE6 reverse tcp:8790 tcp:8790` → `adb shell am start -a android.intent.action.VIEW -d "http://localhost:8790/?v=N"`
 - 検証はコンソールの `window.__U` フック経由（CLAUDE.md参照）。
+- **スマホでJSを実行する方法(2026-07-25確立・デスクトップのrAF停止を回避できる決定打)**:
+  `adb forward tcp:9222 localabstract:chrome_devtools_remote` → `http://localhost:9222/json` の
+  `webSocketDebuggerUrl` へ PowerShellの `System.Net.WebSockets.ClientWebSocket` で接続し
+  `{"id":1,"method":"Runtime.evaluate","params":{"expression":"...","returnByValue":true}}` を送る。
+  実機の `__U.*` が全部叩ける＝実機で決定論的に検証できる（今回これで金星のカードを確認した）。
+- **無線adbのポートはスマホの画面表示と食い違うことがある** → `adb mdns services` で現在の
+  `_adb-tls-connect` のポートを調べるのが確実。
 
 ## 失敗した方法・試行ログ（同じ穴に落ちないこと）
 - **検証の期待値を概算のまま計画書に書かない**(2026-07-25)。機能13で「太陽黄経280.0」と概算を書いたため、
@@ -106,7 +115,11 @@
 - スマホのスクショは撮影前に `dumpsys window | grep mCurrentFocus` でChromeが前面か確認する
   (通知でLINE等が前面になっていると他人の画面を撮ってしまう事故が実際に起きた)。
 - **BHの質量を成長させる設計は2度失敗**（全星呑み込み崩壊 or 完全凍結の双安定）。質量900固定+「満員時は最古の星が決定論的な死の螺旋で還る」設計で90分安定を確認済み。変更するなら `__U.advanceSim(5400)` 長期テスト必須。
-- **このPCは `adb pair` が protocol fault で全滅**（adb 37/34、PowerShell/Bash、IP/mDNS名すべて）。回避: USBで一度「許可」→以後は無線も自動接続。
+- ~~このPCは `adb pair` が protocol fault で全滅~~ → **2026-07-25、`adb pair IP:ペア用ポート コード` は普通に成功した**
+  （スマホの「ペア設定コードによるペア設定」画面を開いて実行）。`connect` だけ何度やっても失敗する時は
+  ペアが切れているだけなので、まず `adb pair` をやり直すこと。USB必須ではなくなった。
+- **PowerShellの `>` でスクリーンショットを保存すると壊れる**（BOM+文字コード変換でPNGでなくなる）。
+  `adb exec-out screencap -p > file.png` は**Bashツール**で実行すること(2026-07-25)。
 - プレビュータブが非表示だと rAF が1〜2fpsに制限される → 実時間待ちの検証は無効。フックで状態を進める。
 - スクリーンショットは3〜10秒遅れる → 歴史モード終端(p>0.95)などは撮影前に一周してしまう。余裕のある時点にジャンプして撮る。
 - 星が暗すぎ問題は「等級→輝度カーブ」調整で解決済み（vInt式）。安易に露出を上げず既存カーブを尊重。
