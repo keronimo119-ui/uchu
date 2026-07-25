@@ -156,7 +156,7 @@
 <div id="timeUI" class="fade">
   <div class="timeBar">
     <div class="time-slider-container">
-      <input id="timeSlider" type="range" min="-100000" max="100000" value="0" step="100">
+      <input id="timeSlider" type="range" min="-100000" max="100000" value="0" step="500">
     </div>
     <div class="time-display">
       <div class="time-year" id="timeYear"></div>
@@ -439,8 +439,10 @@ for (const d of dsos) { d.s.position.copy(d.p); d.s.material.rotation = d.rot; s
 
 // ═══════════════ 固有運動タイムラプス applyTime() ═══════════════
 let selectedCon = -1;  // 現在選択中の星座（-1 = 未選択）
+let applyTimeCallCount = 0;  // 検証用カウンター（スロットル動作確認）
 function applyTime() {
   if (!window.UCHU_DATA || !window.UCHU_DATA.vel) return; // starvel.js 未ロード
+  applyTimeCallCount++;  // スロットル検証用カウント
 
   const scale = timeYr / 1e6; // 百万年 → 年
   // 星の座標を時刻反映後に更新
@@ -2168,13 +2170,23 @@ applySpeed($('speedR').value);
 // ═══════════════ 時刻スライダーUI（機能1） ═══════════════
 let timeUIOn = false;
 let timeSliderTimer = 0;
+let lastTimeApply = 0;       // 前回 applyTime() 実行時刻（スロットル用）
+let timeApplyPending = false; // applyTime() pending フラグ
 function updateTimeDisplay() {
   if (timeYr === 0) {
-    $('timeYear').textContent = '現在（西暦2026年）';
+    $('timeYear').textContent = 'いまの星空';
   } else if (timeYr > 0) {
-    $('timeYear').textContent = `西暦${2026 + Math.round(timeYr)}年（${Math.abs(timeYr) / 1000 | 0}万年後）`;
+    const absYr = Math.abs(timeYr);
+    const display = absYr >= 10000
+      ? `いまから ${(absYr / 10000).toFixed(1)}万年後`
+      : `いまから ${absYr | 0}年後`;
+    $('timeYear').textContent = display;
   } else {
-    $('timeYear').textContent = `西暦${2026 + Math.round(timeYr)}年（${Math.abs(timeYr) / 1000 | 0}万年前）`;
+    const absYr = Math.abs(timeYr);
+    const display = absYr >= 10000
+      ? `いまから ${(absYr / 10000).toFixed(1)}万年前`
+      : `いまから ${absYr | 0}年前`;
+    $('timeYear').textContent = display;
   }
 }
 $('bTime').onclick = () => {
@@ -2187,19 +2199,37 @@ $('timeSlider').oninput = e => {
   const newTime = parseInt(e.target.value);
   if (newTime !== timeYr) {
     timeYr = newTime;
-    timeDirty = true;
     updateTimeDisplay();
-    clearTimeout(timeSliderTimer);
-    // 60ms 間隔で applyTime() を呼ぶ（スライダー操作中も描画が止まらないように）
-    timeSliderTimer = setTimeout(() => { if (timeDirty) applyTime(); }, 60);
+
+    // スロットル実装：60ms 間隔で applyTime() を呼び、最後に必ず1回実行（追従感重視）
+    const now = performance.now();
+    if (now - lastTimeApply >= 60) {
+      // 60ms 以上経っているなら即実行
+      applyTime();
+      lastTimeApply = now;
+      timeApplyPending = false;
+      clearTimeout(timeSliderTimer);
+    } else {
+      // まだ60ms経っていないので pending（次のタイマーで実行）
+      timeApplyPending = true;
+      clearTimeout(timeSliderTimer);
+      timeSliderTimer = setTimeout(() => {
+        if (timeApplyPending) {
+          applyTime();
+          lastTimeApply = performance.now();
+          timeApplyPending = false;
+        }
+      }, 60 - (now - lastTimeApply));
+    }
   }
   wakeUI();
 };
 $('bTimeReset').onclick = () => {
   timeYr = 0;
   $('timeSlider').value = 0;
-  timeDirty = true;
   applyTime();
+  lastTimeApply = performance.now();  // スロットルリセット
+  timeApplyPending = false;
   updateTimeDisplay();
   wakeUI();
 };
@@ -2304,7 +2334,27 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
       results.sirius = { deg: +ang.toFixed(2) };
     }
     return { timeYr: testYr, ...results };
-  } };
+  },
+  throttleTest: () => { // スロットル動作確認用：スライダー 0→50000 で applyTime() 呼び出し回数
+    applyTimeCallCount = 0;
+    const slider = document.getElementById('timeSlider');
+    const originalValue = slider.value;
+    // スライダーを 0 → 50000 にシミュレート
+    slider.value = 50000;
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    // 最終的な pending を解決（最後の1回を待つ）
+    return new Promise(resolve => {
+      setTimeout(() => {
+        resolve({
+          applyTimeCallCount,
+          expected: '複数回（スロットル間欠）',
+          note: '0回や毎フレームでもなく、60ms間隔で間欠的に呼ばれるのが正解'
+        });
+      }, 150);
+    });
+  },
+  getApplyCount: () => applyTimeCallCount  // スロットル検証用：applyTime() 呼び出し回数
+ };
 setTimeout(() => $('splash').classList.add('fade'), 3500);
 
 // ブラックホールはゆっくり夜空を旅する
