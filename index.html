@@ -81,7 +81,7 @@
 
   /* 現在地表示 */
   #pos { position:fixed; right:calc(12px + env(safe-area-inset-right));
-    bottom:calc(10px + env(safe-area-inset-bottom)); color:#7d8fbf; font-size:11.5px;
+    bottom:calc(70px + env(safe-area-inset-bottom)); color:#7d8fbf; font-size:11.5px;
     letter-spacing:.08em; z-index:20; transition:opacity 1.2s ease; text-shadow:0 0 6px #000; text-align:right; }
 
   /* 遊泳速度スライダー（左端・縦置き・宇宙遊泳モードのみ表示） */
@@ -106,17 +106,23 @@
     background:rgba(10,16,38,.45); border:1px solid rgba(160,185,255,.35);
     border-radius:14px; padding:12px 16px;
     backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
-  #timeUI .time-slider-container { width:min(70vw,280px); }
+  #timeUI .time-slider-container { width:min(70vw,280px); padding:0 10px; }
   #timeUI #timeSlider { width:100%; height:4px; accent-color:#7da2ff;
     -webkit-appearance:none; appearance:none; background:transparent;
     cursor:pointer; }
+  #timeUI #timeSlider::-webkit-slider-runnable-track { height:4px; border-radius:2px;
+    background:rgba(160,185,255,.35); border:none; cursor:pointer; }
+  #timeUI #timeSlider::-moz-range-track { height:4px; border-radius:2px;
+    background:rgba(160,185,255,.35); border:none; cursor:pointer; }
   #timeUI #timeSlider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
     width:18px; height:18px; border-radius:50%; background:rgba(200,220,255,.9);
-    border:2px solid rgba(150,180,255,.6); cursor:pointer; }
+    border:2px solid rgba(150,180,255,.6); cursor:pointer; margin-top:-7px; }
   #timeUI #timeSlider::-moz-range-thumb { width:18px; height:18px; border-radius:50%;
     background:rgba(200,220,255,.9); border:2px solid rgba(150,180,255,.6); cursor:pointer; }
   #timeUI .time-display { display:flex; align-items:center; gap:12px; }
-  #timeUI .time-year { color:#c8d6ff; font-size:14px; letter-spacing:.1em; min-width:120px; text-align:center; }
+  #timeUI .time-year { color:#c8d6ff; font-size:14px; letter-spacing:.1em; min-width:140px; text-align:center; white-space:nowrap; }
+  #timeUI .time-scale-labels { display:flex; justify-content:space-between; padding:0 10px; margin-top:6px;
+    color:rgba(200,215,255,.45); font-size:10px; letter-spacing:.05em; }
   #timeUI #bTimeReset { background:rgba(100,140,255,.35); color:#c8d6ff;
     border:1px solid rgba(160,180,255,.4); border-radius:8px; padding:6px 12px;
     font-size:12px; cursor:pointer; }
@@ -157,6 +163,11 @@
   <div class="timeBar">
     <div class="time-slider-container">
       <input id="timeSlider" type="range" min="-100000" max="100000" value="0" step="500">
+    </div>
+    <div class="time-scale-labels">
+      <div class="label">10万年前</div>
+      <div class="label">いま</div>
+      <div class="label">10万年後</div>
     </div>
     <div class="time-display">
       <div class="time-year" id="timeYear"></div>
@@ -2291,70 +2302,9 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
     timeYr: +timeYr.toFixed(0),
     timeStr: $('timeYear').textContent,
     dirty: timeDirty,
-    velLoaded: !!(window.UCHU_DATA && window.UCHU_DATA.vel)
-  }),
-  timeVerify: (yr) => { // 検証用：指定年数での星の移動量を計算
-    const testYr = yr || 50000;
-    __U.setTime(testYr);
-    // 北斗七星（おおぐま座の主要星）の名前で探す
-    const umaIndices = [];
-    let arcturusIdx = -1, siriusIdx = -1;
-    for (const [i, name] of Object.entries(D.names)) {
-      if (name === 'Arcturus') arcturusIdx = parseInt(i);
-      if (name === 'Sirius') siriusIdx = parseInt(i);
-    }
-    for (let i = 0; i < nReal; i++) {
-      const name = D.names[i];
-      if (name && (name.includes('Alkaid') || name.includes('Mizar') || name.includes('Alioth') ||
-                   name.includes('Megrez') || name.includes('Phecda') || name.includes('Merak') ||
-                   name.includes('Dubhe'))) {
-        umaIndices.push(i);
-      }
-    }
-    const results = {};
-    // 北斗七星の移動
-    results.ursa_maj = umaIndices.slice(0, 7).map(i => {
-      const p0 = new THREE.Vector3(pos0[i*3], pos0[i*3+1], pos0[i*3+2]).normalize();
-      const p1 = new THREE.Vector3(pos[i*3], pos[i*3+1], pos[i*3+2]).normalize();
-      const ang = Math.acos(Math.max(-1, Math.min(1, p0.dot(p1)))) * 180 / Math.PI;
-      return { name: D.names[i], deg: +ang.toFixed(2) };
-    });
-    // アークトゥルス（高速星）の移動
-    if (arcturusIdx >= 0) {
-      const p0 = new THREE.Vector3(pos0[arcturusIdx*3], pos0[arcturusIdx*3+1], pos0[arcturusIdx*3+2]).normalize();
-      const p1 = new THREE.Vector3(pos[arcturusIdx*3], pos[arcturusIdx*3+1], pos[arcturusIdx*3+2]).normalize();
-      const ang = Math.acos(Math.max(-1, Math.min(1, p0.dot(p1)))) * 180 / Math.PI;
-      results.arcturus = { deg: +ang.toFixed(2) };
-    }
-    // シリウスの移動（速度 ~19 km/s）
-    if (siriusIdx >= 0) {
-      const p0 = new THREE.Vector3(pos0[siriusIdx*3], pos0[siriusIdx*3+1], pos0[siriusIdx*3+2]).normalize();
-      const p1 = new THREE.Vector3(pos[siriusIdx*3], pos[siriusIdx*3+1], pos[siriusIdx*3+2]).normalize();
-      const ang = Math.acos(Math.max(-1, Math.min(1, p0.dot(p1)))) * 180 / Math.PI;
-      results.sirius = { deg: +ang.toFixed(2) };
-    }
-    return { timeYr: testYr, ...results };
-  },
-  throttleTest: () => { // スロットル動作確認用：スライダー 0→50000 で applyTime() 呼び出し回数
-    applyTimeCallCount = 0;
-    const slider = document.getElementById('timeSlider');
-    const originalValue = slider.value;
-    // スライダーを 0 → 50000 にシミュレート
-    slider.value = 50000;
-    slider.dispatchEvent(new Event('input', { bubbles: true }));
-    // 最終的な pending を解決（最後の1回を待つ）
-    return new Promise(resolve => {
-      setTimeout(() => {
-        resolve({
-          applyTimeCallCount,
-          expected: '複数回（スロットル間欠）',
-          note: '0回や毎フレームでもなく、60ms間隔で間欠的に呼ばれるのが正解'
-        });
-      }, 150);
-    });
-  },
-  getApplyCount: () => applyTimeCallCount  // スロットル検証用：applyTime() 呼び出し回数
- };
+    velLoaded: !!(window.UCHU_DATA && window.UCHU_DATA.vel),
+    applyCount: applyTimeCallCount  // スロットル動作確認用
+  });  // timeState 終わり
 setTimeout(() => $('splash').classList.add('fade'), 3500);
 
 // ブラックホールはゆっくり夜空を旅する
