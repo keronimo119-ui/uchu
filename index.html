@@ -2304,7 +2304,8 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
     dirty: timeDirty,
     velLoaded: !!(window.UCHU_DATA && window.UCHU_DATA.vel),
     applyCount: applyTimeCallCount  // スロットル動作確認用
-  });  // timeState 終わり
+  })
+}; // window.__U 終わり（この `};` を消すとモジュール全体が構文エラー＝アプリ無起動になる）
 setTimeout(() => $('splash').classList.add('fade'), 3500);
 
 // ブラックホールはゆっくり夜空を旅する
