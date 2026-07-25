@@ -1350,6 +1350,15 @@ function updateSizeUniform() {
 updateSizeUniform();
 
 // ═══════════════ 惑星（実際の軌道計算）と今夜の見どころ ═══════════════
+// メインループ用: 惑星レイヤの更新・可視性制御
+function updatePlanetLayer() {
+  updatePlanetSky();
+  if (planetPoints) {
+    planetPoints.visible = (mode === 'gaze');
+    if (planetPoints.visible) planetPoints.position.copy(camera.position);
+  }
+}
+
 // JPL近似軌道要素(1800-2050年用・Standish)
 // 配列: [a, e, I, L, ϖ, Ω, a_rate, e_rate, I_rate, L_rate, ϖ_rate, Ω_rate]
 const PL_ELEM = {
@@ -2295,12 +2304,8 @@ function loop(now) {
     if (t - uiWakeT > 3 && uiWakeT > 0) { $('ui').classList.add('fade'); $('stats').classList.add('fade'); $('pos').classList.add('fade'); $('speed').classList.add('fade'); }
   }
 
-  // 惑星の更新・可視性制御
-  updatePlanetSky();
-  if (planetPoints) {
-    planetPoints.visible = (mode === 'gaze');
-    if (planetPoints.visible) planetPoints.position.copy(camera.position);
-  }
+  // 惑星レイヤの更新
+  updatePlanetLayer();
 
   renderer.setRenderTarget(rt);
   renderer.clear();
@@ -2341,7 +2346,9 @@ window.__U.planets = () => {
       mag: p.mag,
       con: p.con || '',
       elong: p.elong || 0,
-      ecLon: p.ecLon || 0
+      ecLon: p.ecLon || 0,
+      dist: p.dist || 0,
+      vis: p.vis !== undefined ? p.vis : false
     };
     if (p.ra !== undefined && p.dec !== undefined) {
       ret.ra = rad2deg(p.ra);
@@ -2367,6 +2374,19 @@ window.__U.setPlanetDate = (dateStr) => {
   __planets_cache = [];
   planetLastUpdate = 0;
   updatePlanetSky();
+};
+
+window.__U.planetTick = () => {
+  updatePlanetLayer();
+  const pos = planetPoints?.position;
+  const result = {
+    visible: planetPoints?.visible || false,
+    position: pos ? { x: pos.x, y: pos.y, z: pos.z } : null,
+    mode: window.mode || 'unknown'
+  };
+  // デバッグ: グローバルにも保存
+  window.__last_planetTick = result;
+  return result;
 };
 
 window.__U.planetPick = (name) => {
