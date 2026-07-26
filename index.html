@@ -344,16 +344,15 @@ starPoints.frustumCulled = false;
 scene.add(starPoints);
 
 // ═══════════════ 星タップ時のハイライト演出（タップフラッシュ）═══════════════
-let flashActive = false, flashT = 0, auraValue = 0, auraFadeStart = -1;
+let flashActive = false, flashT = 0;
 const flashState = {
   pos: new THREE.Vector3(),
   color: [1, 1, 1],
   follow: false,
-  dir: new THREE.Vector3(),
-  cardShown: false
+  dir: new THREE.Vector3()
 };
 
-const flashUniforms = { uTime: { value: 0 }, uSize: { value: PR }, uColor: { value: new THREE.Color(1, 1, 1) }, uAura: { value: 0 } };
+const flashUniforms = { uTime: { value: 0 }, uSize: { value: PR }, uColor: { value: new THREE.Color(1, 1, 1) } };
 const flashMat = new THREE.ShaderMaterial({
   uniforms: flashUniforms,
   transparent: true, depthWrite: false, depthTest: false,
@@ -364,34 +363,22 @@ const flashMat = new THREE.ShaderMaterial({
     void main(){
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
       vTime = uTime;
-      gl_PointSize = min(255.0, 95.0 * uSize);
+      gl_PointSize = 22.0 * uSize;
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: `
     precision highp float;
-    uniform vec3 uColor; uniform float uAura;
+    uniform vec3 uColor;
     varying float vTime;
     void main(){
       vec2 uv = gl_PointCoord - 0.5;
       float d = length(uv) * 2.0;
-      float t_core = min(1.8, vTime);
-      float core_t = t_core / 1.8;
-      float core_bright = (t_core < 0.18) ? 1.15 : exp(-pow(core_t - 0.1, 2.0) * 80.0);
-      float core = exp(-d * d * 60.0) * core_bright;
-      float spike = (exp(-abs(uv.x) * 22.0) + exp(-abs(uv.y) * 22.0)) * exp(-d * 3.0) * 0.85 * max(0.0, 1.0 - vTime / 0.5);
-      float t_ring = min(0.9, vTime);
-      float ring_alpha = (1.0 - t_ring / 0.9);
-      float ring_r = t_ring / 0.9 * 0.5;
-      float ring_thick = 0.05;
-      float ring1 = exp(-pow(d - ring_r, 2.0) / (ring_thick * ring_thick)) * ring_alpha * 1.5;
-      float t_ring2 = max(0.0, min(0.9, vTime - 0.18));
-      float ring2_alpha = (1.0 - t_ring2 / 0.9);
-      float ring2_r = t_ring2 / 0.9 * 0.5;
-      float ring2 = exp(-pow(d - ring2_r, 2.0) / (ring_thick * ring_thick)) * ring2_alpha * 0.95;
-      float ring = ring1 + ring2;
-      float pulse = 1.0 + 0.15 * sin(vTime * 2.0 * 3.14159 / 1.6);
-      float aura = exp(-d * 5.5) * uAura * 0.5 * pulse;
-      float a = core + spike + ring + aura;
+      if(d > 1.0) discard;
+      float core = exp(-d * d * 9.0);
+      float halo = exp(-d * 2.7) * 0.42;
+      float spike = (exp(-abs(uv.x) * 26.0) + exp(-abs(uv.y) * 26.0)) * exp(-d * 2.0) * 0.5;
+      float intensity = 1.7 * exp(-vTime * 4.5);
+      float a = (core + halo + spike) * intensity;
       gl_FragColor = vec4(uColor * a, a);
     }`
 });
@@ -405,8 +392,6 @@ scene.add(flashPoints);
 function pickFlash(worldPosOrDir, color, follow) {
   flashActive = true;
   flashT = 0;
-  auraFadeStart = -1;
-  auraValue = 0;
   flashState.color = color;
   flashState.follow = follow;
   if (follow) {
@@ -415,7 +400,6 @@ function pickFlash(worldPosOrDir, color, follow) {
   } else {
     flashState.pos.copy(worldPosOrDir);
   }
-  flashState.cardShown = true;
   flashPoints.visible = true;
   flashPoints.position.copy(flashState.pos);
   flashUniforms.uColor.value.setRGB(color[0], color[1], color[2]);
@@ -428,28 +412,12 @@ function updateFlash(dt) {
     flashState.pos.copy(camera.position).add(flashState.dir.clone().multiplyScalar(100));
     flashPoints.position.copy(flashState.pos);
   }
-  // 毎フレーム card の表示状態を確認（自動閉じ含む全ての閉じ方に対応）
-  const shown = card.classList.contains('show');
-  if (!shown) flashState.cardShown = false;
-
-  // カード表示中は aura=1、非表示なら1秒かけて0へ
-  if (flashState.cardShown) {
-    auraValue = 1.0;
-    auraFadeStart = -1;
-  } else if (auraFadeStart < 0) {
-    auraFadeStart = flashT; // 非表示開始時刻を記録
-  }
-  if (auraFadeStart >= 0) {
-    const fadeDt = flashT - auraFadeStart;
-    auraValue = Math.max(0, 1.0 - fadeDt / 1.0);
-    if (auraValue === 0) {
-      flashActive = false;
-      flashPoints.visible = false;
-      return;
-    }
+  if (flashT >= 0.8) {
+    flashActive = false;
+    flashPoints.visible = false;
+    return;
   }
   flashUniforms.uTime.value = flashT;
-  flashUniforms.uAura.value = auraValue;
 }
 
 // ═══════════════ 固有運動タイムラプス（機能1）═══════════════
@@ -2423,9 +2391,7 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
     t: +flashT.toFixed(3),
     pos: flashState.pos.toArray().map(v => +v.toFixed(1)),
     color: flashState.color.map(v => +v.toFixed(2)),
-    follow: flashState.follow,
-    cardShown: flashState.cardShown,
-    aura: +auraValue.toFixed(2)
+    follow: flashState.follow
   }),
   flashTick: dt => updateFlash(dt), // 動作確認用：フラッシュアニメーションを1コマ進める
   planetPick: name => { // 動作確認用：惑星をタップ
