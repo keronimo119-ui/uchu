@@ -343,6 +343,96 @@ const starPoints = new THREE.Points(starGeo, starMat);
 starPoints.frustumCulled = false;
 scene.add(starPoints);
 
+// ═══════════════ 星タップ時のハイライト演出（タップフラッシュ）═══════════════
+let flashActive = false, flashT = 0;
+const flashState = {
+  pos: new THREE.Vector3(),
+  color: [1, 1, 1],
+  follow: false,
+  dir: new THREE.Vector3(),
+  cardShown: false
+};
+
+const flashUniforms = { uTime: { value: 0 }, uSize: { value: PR }, uColor: { value: new THREE.Color(1, 1, 1) } };
+const flashMat = new THREE.ShaderMaterial({
+  uniforms: flashUniforms,
+  transparent: true, depthWrite: false, depthTest: false,
+  blending: THREE.AdditiveBlending,
+  vertexShader: `
+    uniform float uTime; uniform float uSize;
+    varying float vTime;
+    void main(){
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vTime = uTime;
+      gl_PointSize = 40.0 * uSize;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    precision highp float;
+    uniform vec3 uColor;
+    varying float vTime;
+    void main(){
+      vec2 uv = gl_PointCoord - 0.5;
+      float d = length(uv) * 2.0;
+      float t_core = min(1.5, vTime);
+      float core_t = t_core / 1.5;
+      float core_bright = (t_core < 0.12) ? 1.0 : exp(-pow(core_t - 0.08, 2.0) * 80.0);
+      float core = exp(-d * d * 10.0) * core_bright;
+      float t_ring = min(0.9, vTime);
+      float ring_alpha = (1.0 - t_ring / 0.9);
+      float ring_r = t_ring / 0.9 * 0.5;
+      float ring_thick = 0.08;
+      float ring = exp(-pow(d - ring_r, 2.0) / (ring_thick * ring_thick)) * ring_alpha * 0.6;
+      float t_aura = vTime;
+      float aura_bright = 1.0;
+      if (t_aura > 2.0) { aura_bright = exp(-pow((t_aura - 2.0) / 1.0, 2.0) * 2.0); }
+      float aura = exp(-d * 3.0) * aura_bright * 0.3;
+      float a = core + ring + aura;
+      gl_FragColor = vec4(uColor * a, a);
+    }`
+});
+
+const flashGeo = new THREE.BufferGeometry();
+flashGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+const flashPoints = new THREE.Points(flashGeo, flashMat);
+flashPoints.visible = false;
+scene.add(flashPoints);
+
+function pickFlash(worldPosOrDir, color, follow) {
+  flashActive = true;
+  flashT = 0;
+  flashState.color = color;
+  flashState.follow = follow;
+  if (follow) {
+    flashState.dir.copy(worldPosOrDir).normalize();
+    flashState.pos.copy(camera.position).add(flashState.dir.clone().multiplyScalar(100));
+  } else {
+    flashState.pos.copy(worldPosOrDir);
+  }
+  flashState.cardShown = true;
+  flashPoints.visible = true;
+  flashPoints.position.copy(flashState.pos);
+  flashUniforms.uColor.value.setRGB(color[0], color[1], color[2]);
+}
+
+function updateFlash(dt) {
+  if (!flashActive) return;
+  flashT += dt;
+  if (flashState.follow) {
+    flashState.pos.copy(camera.position).add(flashState.dir.clone().multiplyScalar(100));
+    flashPoints.position.copy(flashState.pos);
+  }
+  if (flashT > 3.0) {
+    flashActive = false;
+    flashPoints.visible = false;
+  }
+  flashUniforms.uTime.value = flashT;
+}
+
+function endFlashCard() {
+  if (flashActive) flashState.cardShown = false;
+}
+
 // ═══════════════ 固有運動タイムラプス（機能1）═══════════════
 const pos0 = new Float32Array(nReal * 3);
 for (let i = 0; i < nReal; i++) {
@@ -1649,6 +1739,8 @@ function showPlanetCard(pl, planets) {
     <div class="d">${vis_txt}</div>
     <div class="y">${info[pl.name]}</div>`;
   SFX.chime();
+  const plDir = new THREE.Vector3(Math.cos(pl.dec) * Math.cos(pl.ra), Math.cos(pl.dec) * Math.sin(pl.ra), Math.sin(pl.dec));
+  pickFlash(plDir, PL_COLOR[pl.name], true);
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 10000);
@@ -1746,7 +1838,7 @@ function updatePlanetSky() {
 // ═══════════════ 星をタップ → 情報カード ═══════════════
 const card = $('card');
 let cardTimer = 0;
-card.onpointerdown = () => card.classList.remove('show'); // 解説は触れた瞬間に消える(上から始めたフリックの邪魔もしない)
+card.onpointerdown = () => { endFlashCard(); card.classList.remove('show'); }; // 解説は触れた瞬間に消える(上から始めたフリックの邪魔もしない)
 function pickStar(px, py) {
   if (mode === 'history' || mode === 'tour') return; // 歴史/めぐり中は天体観賞に集中
   const ndc = new THREE.Vector2((px / innerWidth) * 2 - 1, -(py / innerHeight) * 2 + 1);
@@ -1793,6 +1885,7 @@ function pickStar(px, py) {
       <div class="d">いまのあなたから ${dly.toFixed(1)}光年</div>
       <div class="y">人類の歴史のすべては、この小さな光のまわりで起きました</div>`;
     SFX.chime();
+    pickFlash(new THREE.Vector3(pos[nSun*3], pos[nSun*3+1], pos[nSun*3+2]), [1.0, 0.95, 0.7], false);
     card.classList.add('show');
     clearTimeout(cardTimer);
     cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
@@ -1819,6 +1912,7 @@ function pickStar(px, py) {
   card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${name}</div>
     <div class="s">${sub}</div><div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
   SFX.chime();
+  pickFlash(new THREE.Vector3(pos[best*3], pos[best*3+1], pos[best*3+2]), c, false);
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
@@ -2304,7 +2398,26 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
     dirty: timeDirty,
     velLoaded: !!(window.UCHU_DATA && window.UCHU_DATA.vel),
     applyCount: applyTimeCallCount  // スロットル動作確認用
-  })
+  }),
+  flashState: () => ({ // 動作確認用：フラッシュ演出の状態を返す
+    active: flashActive,
+    t: +flashT.toFixed(3),
+    pos: flashState.pos.toArray().map(v => +v.toFixed(1)),
+    color: flashState.color.map(v => +v.toFixed(2)),
+    follow: flashState.follow,
+    cardShown: flashState.cardShown
+  }),
+  flashTick: dt => updateFlash(dt), // 動作確認用：フラッシュアニメーションを1コマ進める
+  planetPick: name => { // 動作確認用：惑星をタップ
+    const planets = __planets_cache;
+    for (const pl of planets) {
+      if (pl.name === name) {
+        showPlanetCard(pl, planets);
+        return 'picked';
+      }
+    }
+    return 'not found';
+  }
 }; // window.__U 終わり（この `};` を消すとモジュール全体が構文エラー＝アプリ無起動になる）
 setTimeout(() => $('splash').classList.add('fade'), 3500);
 
@@ -2337,6 +2450,7 @@ function loop(now) {
 
   advanceSim(dt * SIM.speed);
   writeNbBuffers();
+  updateFlash(dt);
   flash *= Math.pow(0.03, Math.max(dt, dt * SIM.speed)); // 閃光の減衰
 
   // カメラ
