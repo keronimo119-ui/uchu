@@ -352,24 +352,28 @@ const flashState = {
   dir: new THREE.Vector3()
 };
 
-const flashUniforms = { uTime: { value: 0 }, uSize: { value: PR }, uColor: { value: new THREE.Color(1, 1, 1) } };
+const flashUniforms = { uTime: { value: 0 }, uSize: { value: PR }, uColor: { value: new THREE.Color(1, 1, 1) }, uMag: { value: 0 } };
 const flashMat = new THREE.ShaderMaterial({
   uniforms: flashUniforms,
   transparent: true, depthWrite: false, depthTest: false,
   blending: THREE.AdditiveBlending,
   vertexShader: `
-    uniform float uTime; uniform float uSize;
-    varying float vTime;
+    uniform float uTime; uniform float uSize; uniform float uMag;
+    varying float vTime; varying float vInt;
     void main(){
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
       vTime = uTime;
-      gl_PointSize = 22.0 * uSize;
+      float boost = 2.5 * exp(-vTime * 4.5);
+      float m = uMag - boost;
+      float s = clamp(10.0 - m, 1.6, 22.0);
+      gl_PointSize = s * uSize;
+      vInt = clamp(pow(10.0, -0.16 * m) * 2.6, 0.0, 2.4);
       gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: `
     precision highp float;
     uniform vec3 uColor;
-    varying float vTime;
+    varying float vTime; varying float vInt;
     void main(){
       vec2 uv = gl_PointCoord - 0.5;
       float d = length(uv) * 2.0;
@@ -377,8 +381,7 @@ const flashMat = new THREE.ShaderMaterial({
       float core = exp(-d * d * 9.0);
       float halo = exp(-d * 2.7) * 0.42;
       float spike = (exp(-abs(uv.x) * 26.0) + exp(-abs(uv.y) * 26.0)) * exp(-d * 2.0) * 0.5;
-      float intensity = 1.7 * exp(-vTime * 4.5);
-      float a = (core + halo + spike) * intensity;
+      float a = (core + halo + spike) * vInt;
       gl_FragColor = vec4(uColor * a, a);
     }`
 });
@@ -389,7 +392,7 @@ const flashPoints = new THREE.Points(flashGeo, flashMat);
 flashPoints.visible = false;
 scene.add(flashPoints);
 
-function pickFlash(worldPosOrDir, color, follow) {
+function pickFlash(worldPosOrDir, color, follow, mag) {
   flashActive = true;
   flashT = 0;
   flashState.color = color;
@@ -403,6 +406,7 @@ function pickFlash(worldPosOrDir, color, follow) {
   flashPoints.visible = true;
   flashPoints.position.copy(flashState.pos);
   flashUniforms.uColor.value.setRGB(color[0], color[1], color[2]);
+  flashUniforms.uMag.value = mag;
 }
 
 function updateFlash(dt) {
@@ -1727,7 +1731,7 @@ function showPlanetCard(pl, planets) {
     <div class="y">${info[pl.name]}</div>`;
   SFX.chime();
   const plDir = new THREE.Vector3(Math.cos(pl.dec) * Math.cos(pl.ra), Math.cos(pl.dec) * Math.sin(pl.ra), Math.sin(pl.dec));
-  pickFlash(plDir, PL_COLOR[pl.name], true);
+  pickFlash(plDir, PL_COLOR[pl.name], true, pl.mag);
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 10000);
@@ -1872,7 +1876,7 @@ function pickStar(px, py) {
       <div class="d">いまのあなたから ${dly.toFixed(1)}光年</div>
       <div class="y">人類の歴史のすべては、この小さな光のまわりで起きました</div>`;
     SFX.chime();
-    pickFlash(new THREE.Vector3(pos[nSun*3], pos[nSun*3+1], pos[nSun*3+2]), [1.0, 0.95, 0.7], false);
+    pickFlash(new THREE.Vector3(pos[nSun*3], pos[nSun*3+1], pos[nSun*3+2]), [1.0, 0.95, 0.7], false, mag[nSun]);
     card.classList.add('show');
     clearTimeout(cardTimer);
     cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
@@ -1899,7 +1903,7 @@ function pickStar(px, py) {
   card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${name}</div>
     <div class="s">${sub}</div><div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
   SFX.chime();
-  pickFlash(new THREE.Vector3(pos[best*3], pos[best*3+1], pos[best*3+2]), c, false);
+  pickFlash(new THREE.Vector3(pos[best*3], pos[best*3+1], pos[best*3+2]), c, false, mag[best]);
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 8000);
