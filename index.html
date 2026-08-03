@@ -128,6 +128,28 @@
     font-size:12px; cursor:pointer; white-space:nowrap; }
   #timeUI #bTimeReset:active { background:rgba(100,140,255,.6); }
 
+  /* 誕生日の星パネル */
+  #birthPanel { position:fixed; bottom:calc(180px + env(safe-area-inset-bottom)); left:50%;
+    transform:translateX(-50%); z-index:21; opacity:0; pointer-events:none;
+    transition:opacity .35s ease; }
+  #birthPanel.show { opacity:1; pointer-events:auto; }
+  #birthPanel .birthInput { background:rgba(10,16,38,.45); border:1px solid rgba(160,185,255,.35);
+    border-radius:14px; padding:12px 16px; display:flex; flex-direction:column; gap:10px;
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); min-width:200px; }
+  #birthPanel .birthLabel { color:#c8d6ff; font-size:12px; letter-spacing:.1em; }
+  #birthPanel input { background:rgba(20,28,60,.6); border:1px solid rgba(160,185,255,.3);
+    border-radius:6px; padding:8px 10px; color:#c8d6ff; font-size:14px;
+    -webkit-appearance:none; appearance:none; }
+  #birthPanel input::-webkit-outer-spin-button,
+  #birthPanel input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #birthPanel button { background:rgba(100,140,255,.35); color:#c8d6ff;
+    border:1px solid rgba(160,180,255,.4); border-radius:6px; padding:8px 14px;
+    font-size:13px; cursor:pointer; white-space:nowrap; }
+  #birthPanel button:active { background:rgba(100,140,255,.6); }
+  #birthPanel .birthMsg { color:#ffd9a0; font-size:12px; text-align:center; line-height:1.5; }
+  #birthPanel .birthNav { display:flex; gap:8px; justify-content:center; }
+  #birthPanel .birthNav button { flex:1; }
+
   #err { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
     color:#ffb0a0; font-size:15px; z-index:99; text-align:center; padding:0 30px; }
   .fade { opacity:0 !important; pointer-events:none !important; } /* 消えている間は触れない(見えないボタン誤タップ防止) */
@@ -150,6 +172,7 @@
   <button id="bTour"><span class="ic">🪐</span><span>惑星</span></button>
   <button id="bBH"><span class="ic">●</span><span>BH</span></button>
   <button id="bTime"><span class="ic">⏱</span><span>時間</span></button>
+  <button id="bBirth"><span class="ic">🎂</span><span>誕生</span></button>
 </div>
 
 <div id="speed">
@@ -184,6 +207,17 @@
 <div id="stats" style="display:none">⏩ 超早回しの時間 ─ 誕生 <b id="nBorn">0</b>　消滅 <b id="nGone">0</b></div>
 <div id="pos"></div>
 <div id="card"></div>
+
+<div id="birthPanel">
+  <div class="birthInput">
+    <div class="birthLabel">あなたの誕生年を入力してください</div>
+    <input type="number" id="birthYear" min="1900" max="2026" placeholder="西暦 例:1990">
+    <button id="bBirthSearch">さがす</button>
+    <div id="birthMsg" class="birthMsg"></div>
+    <div id="birthNav" class="birthNav"></div>
+  </div>
+</div>
+
 <div id="err"></div>
 
 <script src="stars.js"></script>
@@ -2258,6 +2292,200 @@ const panelEl = $('panel');
 $('bFind').onclick = () => { panelEl.classList.toggle('open'); wakeUI(); };
 $('panelClose').onclick = () => panelEl.classList.remove('open');
 
+// ═══════════════ 誕生日の星（機能2） ═══════════════
+let seekDir = null;          // 目標方向ベクトル（星へ視線移動用。-1で無効）
+let birthCandidates = [];    // 候補星の配列（インデックス）
+let birthCandidateIdx = 0;   // 現在の候補インデックス
+let birthFoundIdx = -1;      // 選択中の星のインデックス
+let birthYear = 0;           // 入力された誕生年
+let birthFlashDone = false;  // フラッシュ完了フラグ
+
+function searchBirthday(inputYear) {
+  const now = new Date().getFullYear();
+  if (inputYear > now) return { year: inputYear, age: 0, found: false, reason: 'future' };
+  const age = now - inputYear;
+
+  // 距離範囲を定義（年齢 ± 0.7光年）
+  const minAge = Math.max(0, age - 0.7);
+  const maxAge = age + 0.7;
+
+  // 候補を探す
+  const candidates = [];
+  for (let i = 0; i <= nReal; i++) {
+    const s = D.stars[i];
+    // 半径 > 1900pc（距離未測定）の星は除外
+    if (s[3] > 1900) continue;
+
+    // 時刻反映後の座標から距離を計算
+    const dx = pos[i*3], dy = pos[i*3+1], dz = pos[i*3+2];
+    const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    const ly = r * 3.2616;
+
+    // 距離範囲チェック
+    if (ly >= minAge && ly <= maxAge) {
+      candidates.push({ idx: i, ly, mag: s[3] });
+    }
+  }
+
+  // 該当星がない場合
+  if (candidates.length === 0) {
+    return { year: inputYear, age, found: false, reason: 'none' };
+  }
+
+  // 明るい順（mag が小さい）にソート
+  candidates.sort((a, b) => a.mag - b.mag);
+  birthCandidates = candidates.map(c => c.idx);
+  birthCandidateIdx = 0;
+
+  return selectBirthdayCandidate(inputYear, age);
+}
+
+function selectBirthdayCandidate(inputYear, age) {
+  if (birthCandidates.length === 0) return { year: inputYear, age, found: false };
+
+  const idx = birthCandidates[birthCandidateIdx];
+  const s = D.stars[idx];
+  const conJp = s[5] >= 0 ? (JP_CON[D.cons[s[5]]] || D.cons[s[5]]) : '';
+  const proper = D.names[idx];
+  const name = proper ? (JP_STAR[proper] || proper) : (conJp ? conJp + 'の星' : '名もなき星');
+
+  // 距離を再計算
+  const dx = pos[idx*3], dy = pos[idx*3+1], dz = pos[idx*3+2];
+  const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  const ly = r * 3.2616;
+  const mag = s[3];
+
+  const birthYearStr = inputYear;
+  const year = Math.round(2026 - ly);
+  let cardText = '';
+  if (year >= 0) {
+    cardText = `あなたが生まれた${birthYearStr}年、この星を光が発ちました。${age}年かけて、いまあなたに届いています`;
+  } else {
+    cardText = `この星が光を発ったのは紀元前${1 - year}年。${age}年かけて、いまあなたに届いています`;
+  }
+
+  birthFlashDone = false;
+  seekDir = new THREE.Vector3(pos[idx*3], pos[idx*3+1], pos[idx*3+2]).normalize();
+  birthFoundIdx = idx;
+
+  return {
+    year: inputYear, age, found: true, name, ly: +ly.toFixed(1), mag, con: conJp,
+    cardText, candidates: birthCandidates.length
+  };
+}
+
+// ボタン・入力ハンドラ
+const birthPanel = $('birthPanel');
+const birthYearInput = $('birthYear');
+const birthMsgDiv = $('birthMsg');
+const birthNavDiv = $('birthNav');
+
+// localStorage から前回の年を読み込み
+const savedBirthYear = localStorage.getItem('uchu_birthYear');
+if (savedBirthYear) {
+  birthYearInput.value = savedBirthYear;
+}
+
+$('bBirth').onclick = () => {
+  birthPanel.classList.toggle('show');
+  if (birthPanel.classList.contains('show')) {
+    birthYearInput.focus();
+    birthMsgDiv.textContent = '';
+    birthNavDiv.innerHTML = '';
+  }
+  wakeUI();
+};
+
+function executeBirthdaySearch() {
+  const year = parseInt(birthYearInput.value);
+  if (!year || year < 1900 || year > 2026) {
+    birthMsgDiv.textContent = '1900〜2026年の西暦を入力してください';
+    birthMsgDiv.style.color = '#ff9999';
+    birthNavDiv.innerHTML = '';
+    return;
+  }
+
+  birthYear = year;
+  localStorage.setItem('uchu_birthYear', year);
+  const result = searchBirthday(year);
+
+  if (!result.found) {
+    const reason = result.reason === 'future' ? '生まれていない年です' :
+                   result.reason === 'none' ? 'この距離にはまだ見つかっている星がありません' :
+                   'いちばん近い星の光でも、地球に届くまで4.4年かかります。あなたが生まれたときの光は、まだ旅の途中です';
+    birthMsgDiv.textContent = reason;
+    birthMsgDiv.style.color = '#ffd9a0';
+    birthNavDiv.innerHTML = '';
+    return;
+  }
+
+  // 星が見つかった場合は、モード遷移と視線移動
+  if (mode === 'history') exitHistory();
+  if (mode === 'tour') exitTour();
+  enterGaze();
+  lastUserT = -20;
+  card.classList.remove('show');
+  birthPanel.classList.remove('show');
+
+  // カードを表示
+  const c = bvToRGB(D.stars[result.name ? birthFoundIdx : -1][4]);
+  card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${result.name}</div>
+    <div class="s">あなたの星 ／ ${result.con || '見つかった星'}</div>
+    <div class="d">地球から ${result.ly}光年</div>
+    <div class="y">${result.cardText}</div>`;
+  SFX.chime();
+  card.classList.add('show');
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => card.classList.remove('show'), 12000);
+
+  // 複数候補がある場合は「次の星」ボタンを表示
+  if (result.candidates > 1) {
+    birthNavDiv.innerHTML = `<button id="bBirthPrev">← 前</button><button id="bBirthNext">次 →</button>`;
+    $('bBirthNext').onclick = () => {
+      birthCandidateIdx = (birthCandidateIdx + 1) % birthCandidates.length;
+      selectBirthdayCandidate(birthYear, result.age);
+      const nextIdx = birthCandidates[birthCandidateIdx];
+      const nextStar = D.stars[nextIdx];
+      const nextConJp = nextStar[5] >= 0 ? (JP_CON[D.cons[nextStar[5]]] || D.cons[nextStar[5]]) : '';
+      const nextProper = D.names[nextIdx];
+      const nextName = nextProper ? (JP_STAR[nextProper] || nextProper) : (nextConJp ? nextConJp + 'の星' : '名もなき星');
+      const nextDx = pos[nextIdx*3], nextDy = pos[nextIdx*3+1], nextDz = pos[nextIdx*3+2];
+      const nextR = Math.sqrt(nextDx*nextDx + nextDy*nextDy + nextDz*nextDz);
+      const nextLy = nextR * 3.2616;
+      const nextC = bvToRGB(nextStar[4]);
+      card.innerHTML = `<div class="n" style="color:rgb(${(nextC[0]*255)|0},${(nextC[1]*255)|0},${(nextC[2]*255)|0})">${nextName}</div>
+        <div class="s">あなたの星 ／ ${nextConJp || '見つかった星'}</div>
+        <div class="d">地球から ${nextLy.toFixed(1)}光年</div>
+        <div class="y">あなたが生まれた${birthYear}年、この星を光が発ちました。${result.age}年かけて、いまあなたに届いています</div>`;
+      SFX.chime();
+      pickFlash(new THREE.Vector3(pos[nextIdx*3], pos[nextIdx*3+1], pos[nextIdx*3+2]), nextC, false, nextStar[3]);
+    };
+    $('bBirthPrev').onclick = () => {
+      birthCandidateIdx = (birthCandidateIdx - 1 + birthCandidates.length) % birthCandidates.length;
+      selectBirthdayCandidate(birthYear, result.age);
+      const prevIdx = birthCandidates[birthCandidateIdx];
+      const prevStar = D.stars[prevIdx];
+      const prevConJp = prevStar[5] >= 0 ? (JP_CON[D.cons[prevStar[5]]] || D.cons[prevStar[5]]) : '';
+      const prevProper = D.names[prevIdx];
+      const prevName = prevProper ? (JP_STAR[prevProper] || prevProper) : (prevConJp ? prevConJp + 'の星' : '名もなき星');
+      const prevDx = pos[prevIdx*3], prevDy = pos[prevIdx*3+1], prevDz = pos[prevIdx*3+2];
+      const prevR = Math.sqrt(prevDx*prevDx + prevDy*prevDy + prevDz*prevDz);
+      const prevLy = prevR * 3.2616;
+      const prevC = bvToRGB(prevStar[4]);
+      card.innerHTML = `<div class="n" style="color:rgb(${(prevC[0]*255)|0},${(prevC[1]*255)|0},${(prevC[2]*255)|0})">${prevName}</div>
+        <div class="s">あなたの星 ／ ${prevConJp || '見つかった星'}</div>
+        <div class="d">地球から ${prevLy.toFixed(1)}光年</div>
+        <div class="y">あなたが生まれた${birthYear}年、この星を光が発ちました。${result.age}年かけて、いまあなたに届いています</div>`;
+      SFX.chime();
+      pickFlash(new THREE.Vector3(pos[prevIdx*3], pos[prevIdx*3+1], pos[prevIdx*3+2]), prevC, false, prevStar[3]);
+    };
+  }
+  wakeUI();
+}
+
+$('bBirthSearch').onclick = executeBirthdaySearch;
+birthYearInput.onkeypress = (e) => { if (e.key === 'Enter') executeBirthdaySearch(); };
+
 // 遊泳速度スライダー：0〜100 を 倍率0.4〜4.0 に変換（変更は次の瞬間から効く）
 const applySpeed = v => { wanderSpeed = 0.4 + (v / 100) * 3.6; };
 $('speedR').oninput = e => { applySpeed(e.target.value); wakeUI(); };
@@ -2407,6 +2635,32 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
       }
     }
     return 'not found';
+  },
+  birthday: year => { // 動作確認用：誕生日の星を検索
+    const result = searchBirthday(year);
+    if (!result.found) return result;
+    const idx = birthFoundIdx;
+    const s = D.stars[idx];
+    const conJp = s[5] >= 0 ? (JP_CON[D.cons[s[5]]] || D.cons[s[5]]) : '';
+    const proper = D.names[idx];
+    const name = proper ? (JP_STAR[proper] || proper) : (conJp ? conJp + 'の星' : '名もなき星');
+    const dx = pos[idx*3], dy = pos[idx*3+1], dz = pos[idx*3+2];
+    const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    const ly = r * 3.2616;
+    return { year, age: result.age, found: true, name, ly: +ly.toFixed(1), mag: +s[3].toFixed(2), con: conJp, candidates: birthCandidates.length };
+  },
+  birthdayNext: () => { // 動作確認用：誕生日の星の次の候補へ
+    if (birthCandidates.length === 0) return { error: 'no candidates' };
+    birthCandidateIdx = (birthCandidateIdx + 1) % birthCandidates.length;
+    const idx = birthCandidates[birthCandidateIdx];
+    const s = D.stars[idx];
+    const conJp = s[5] >= 0 ? (JP_CON[D.cons[s[5]]] || D.cons[s[5]]) : '';
+    const proper = D.names[idx];
+    const name = proper ? (JP_STAR[proper] || proper) : (conJp ? conJp + 'の星' : '名もなき星');
+    const dx = pos[idx*3], dy = pos[idx*3+1], dz = pos[idx*3+2];
+    const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    const ly = r * 3.2616;
+    return { idx: birthCandidateIdx, name, ly: +ly.toFixed(1), mag: +s[3].toFixed(2), con: conJp };
   }
 }; // window.__U 終わり（この `};` を消すとモジュール全体が構文エラー＝アプリ無起動になる）
 setTimeout(() => $('splash').classList.add('fade'), 3500);
@@ -2530,13 +2784,25 @@ function loop(now) {
     let target = null;
     if (seekingBH && bhOn) target = bhWorld.clone().normalize();
     else if (seekCon >= 0) target = conDir[seekCon];
+    else if (seekDir) target = seekDir.clone().normalize();
     if (target) {
       const tLon = Math.atan2(target.y, target.x), tLat = Math.asin(Math.max(-1, Math.min(1, target.z)));
       let dLon = tLon - gazeLon;
       while (dLon > Math.PI) dLon -= Math.PI * 2;
       while (dLon < -Math.PI) dLon += Math.PI * 2;
       gazeLon += dLon * Math.min(1, dt * 2.2); gazeLat += (tLat - gazeLat) * Math.min(1, dt * 2.2);
-      if (Math.abs(dLon) < 0.02 && Math.abs(tLat - gazeLat) < 0.02) { seekingBH = false; seekCon = -1; lastUserT = tNow; }
+      if (Math.abs(dLon) < 0.02 && Math.abs(tLat - gazeLat) < 0.02) {
+        seekingBH = false; seekCon = -1;
+        if (seekDir) {
+          if (!birthFlashDone) {
+            pickFlash(new THREE.Vector3(pos[birthFoundIdx*3], pos[birthFoundIdx*3+1], pos[birthFoundIdx*3+2]),
+                      bvToRGB(D.stars[birthFoundIdx][4]), false, D.stars[birthFoundIdx][3]);
+            birthFlashDone = true;
+          }
+          seekDir = null;
+        }
+        lastUserT = tNow;
+      }
     } else {
       vgLon *= Math.pow(0.85, dt); vgLat *= Math.pow(0.85, dt);
       gazeLon += vgLon * dt + 0.006 * dt * idle; // ゆっくり空が流れる
