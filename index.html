@@ -2316,19 +2316,21 @@ function searchBirthday(inputYear) {
 
   // 候補を探す
   const candidates = [];
-  for (let i = 0; i <= nReal; i++) {
+  for (let i = 0; i < nReal; i++) {
     const s = D.stars[i];
-    // 半径 > 1900pc（距離未測定）の星は除外
-    if (s[3] > 1900) continue;
 
     // 時刻反映後の座標から距離を計算
     const dx = pos[i*3], dy = pos[i*3+1], dz = pos[i*3+2];
     const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+    // 半径 > 1900pc（距離未測定）の星は除外
+    if (r > 1900) continue;
+
     const ly = r * 3.2616;
 
     // 距離範囲チェック
     if (ly >= minAge && ly <= maxAge) {
-      candidates.push({ idx: i, ly, mag: s[3] });
+      candidates.push({ idx: i, ly, mag: mag[i] });
     }
   }
 
