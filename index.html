@@ -2403,13 +2403,14 @@ $('bBirth').onclick = () => {
   wakeUI();
 };
 
-function executeBirthdaySearch() {
-  const year = parseInt(birthYearInput.value);
+// 誕生日の星検索を実行（検証フックと本番処理の共通部分）
+function applyBirthdaySearch(year) {
   if (!year || year < 1900 || year > 2026) {
-    birthMsgDiv.textContent = '1900〜2026年の西暦を入力してください';
+    const message = '1900〜2026年の西暦を入力してください';
+    birthMsgDiv.textContent = message;
     birthMsgDiv.style.color = '#ff9999';
     birthNavDiv.innerHTML = '';
-    return;
+    return { year, valid: false, message };
   }
 
   birthYear = year;
@@ -2417,14 +2418,14 @@ function executeBirthdaySearch() {
   const result = searchBirthday(year);
 
   if (!result.found) {
-    const reason = result.reason === 'future' ? '生まれていない年です' :
-                   result.reason === 'young' ? 'いちばん近い星の光でも、地球に届くまで4.4年かかります。あなたが生まれたときの光は、まだ旅の途中です' :
-                   result.reason === 'none' ? 'この距離にはまだ見つかっている星がありません' :
-                   'あなたが生まれたときの光は、まだ旅の途中です';
-    birthMsgDiv.textContent = reason;
+    const message = result.reason === 'future' ? '生まれていない年です' :
+                    result.reason === 'young' ? 'いちばん近い星の光でも、地球に届くまで4.4年かかります。あなたが生まれたときの光は、まだ旅の途中です' :
+                    result.reason === 'none' ? 'この距離にはまだ見つかっている星がありません' :
+                    'あなたが生まれたときの光は、まだ旅の途中です';
+    birthMsgDiv.textContent = message;
     birthMsgDiv.style.color = '#ffd9a0';
     birthNavDiv.innerHTML = '';
-    return;
+    return { year, age: result.age, found: false, reason: result.reason, message };
   }
 
   // 星が見つかった場合は、モード遷移と視線移動
@@ -2432,11 +2433,11 @@ function executeBirthdaySearch() {
   if (mode === 'tour') exitTour();
   enterGaze();
   lastUserT = -20;
-  card.classList.remove('show');
   birthPanel.classList.remove('show');
+  birthMsgDiv.textContent = '';
 
-  // カードを表示
-  const c = bvToRGB(D.stars[result.name ? birthFoundIdx : -1][4]);
+  // ★ カードをすぐ表示（視線到着を待たない）
+  const c = bvToRGB(D.stars[birthFoundIdx][4]);
   card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${result.name}</div>
     <div class="s">あなたの星 ／ ${result.con || '見つかった星'}</div>
     <div class="d">地球から ${result.ly}光年</div>
@@ -2489,6 +2490,13 @@ function executeBirthdaySearch() {
     };
   }
   wakeUI();
+
+  return { year, age: result.age, found: true, name: result.name, ly: result.ly, mag: result.mag, con: result.con, candidates: result.candidates, cardText: result.cardText, message: '' };
+}
+
+function executeBirthdaySearch() {
+  const year = parseInt(birthYearInput.value);
+  applyBirthdaySearch(year);
 }
 
 $('bBirthSearch').onclick = executeBirthdaySearch;
@@ -2644,19 +2652,7 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
     }
     return 'not found';
   },
-  birthday: year => { // 動作確認用：誕生日の星を検索
-    const result = searchBirthday(year);
-    if (!result.found) return result;
-    const idx = birthFoundIdx;
-    const s = D.stars[idx];
-    const conJp = s[5] >= 0 ? (JP_CON[D.cons[s[5]]] || D.cons[s[5]]) : '';
-    const proper = D.names[idx];
-    const name = proper ? (JP_STAR[proper] || proper) : (conJp ? conJp + 'の星' : '名もなき星');
-    const dx = pos[idx*3], dy = pos[idx*3+1], dz = pos[idx*3+2];
-    const r = Math.sqrt(dx*dx + dy*dy + dz*dz);
-    const ly = r * 3.2616;
-    return { year, age: result.age, found: true, name, ly: +ly.toFixed(1), mag: +s[3].toFixed(2), con: conJp, candidates: birthCandidates.length };
-  },
+  birthday: year => applyBirthdaySearch(year), // 動作確認用：誕生日の星を検索（本番と同じ処理を実行）
   birthdayNext: () => { // 動作確認用：誕生日の星の次の候補へ
     if (birthCandidates.length === 0) return { error: 'no candidates' };
     birthCandidateIdx = (birthCandidateIdx + 1) % birthCandidates.length;
