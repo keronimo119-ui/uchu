@@ -2891,6 +2891,7 @@ setTimeout(() => {
   updatePlanetSky();
   const planets = __planets_cache;
   if (planets.length < 6) return;
+  if (card.classList.contains('show')) return; // 起動直後にユーザーが出したカードを横取りしない
   const date = __planetDate || new Date();
   const info = getTonightInfo(date, planets);
   card.innerHTML = `<div class="n" style="color:#d0d0e0">今夜の見どころ</div>
