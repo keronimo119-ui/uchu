@@ -45,12 +45,15 @@
   #stats b { color:#c9d7ff; font-weight:500; }
 
   /* 星の情報カード */
-  #card { position:fixed; left:50%; transform:translateX(-50%);
+  /* left:50%+transform だと使える幅が画面の半分に制限され、日本語が変な位置で折り返す。
+     left/right:0 + margin auto なら画面いっぱいを使えるうえ中央に来る（2026-08-03修正） */
+  #card { position:fixed; left:0; right:0; margin:0 auto; width:fit-content;
     bottom:calc(46px + env(safe-area-inset-bottom));
     background:rgba(8,12,30,.72); border:1px solid rgba(150,175,255,.3);
     border-radius:14px; padding:13px 22px; text-align:center; z-index:30;
     opacity:0; pointer-events:none; transition:opacity .5s ease;
-    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); max-width:82vw; }
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); max-width:82vw;
+    word-break:keep-all; overflow-wrap:anywhere; } /* 単語の途中で折らない（収まらない時だけ折る） */
   #card.show { opacity:1; pointer-events:auto; cursor:pointer; } /* 表示中はタップで閉じられる */
   #card .n  { font-size:21px; letter-spacing:0.15em; margin-bottom:3px; }
   #card .s  { color:#93a5d6; font-size:12px; letter-spacing:0.1em; }
@@ -2330,7 +2333,10 @@ function searchBirthday(inputYear) {
 
     // 距離範囲チェック
     if (ly >= minAge && ly <= maxAge) {
-      candidates.push({ idx: i, ly, mag: mag[i] });
+      // 明るさは「地球から見た明るさ」で比べる。mag[i] は“いまカメラがいる場所”からの
+      // 明るさなので、宇宙遊泳で飛んでいる位置によって選ばれる星が変わってしまう（実機で発覚）
+      const magEarth = absMag[i] + 5 * (Math.log10(Math.max(r, 0.1)) - 1);
+      candidates.push({ idx: i, ly, mag: magEarth });
     }
   }
 
