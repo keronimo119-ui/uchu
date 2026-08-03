@@ -211,7 +211,7 @@
 <div id="birthPanel">
   <div class="birthInput">
     <div class="birthLabel">あなたの誕生年を入力してください</div>
-    <input type="number" id="birthYear" min="1900" max="2026" placeholder="西暦 例:1990">
+    <input type="number" id="birthYear" min="1900" placeholder="西暦 例:1990">
     <button id="bBirthSearch">さがす</button>
     <div id="birthMsg" class="birthMsg"></div>
     <div id="birthNav" class="birthNav"></div>
@@ -2387,6 +2387,7 @@ const birthYearInput = $('birthYear');
 const birthMsgDiv = $('birthMsg');
 const birthNavDiv = $('birthNav');
 
+birthYearInput.max = new Date().getFullYear(); // 上限は今年（年をまたいでも正しく動くように）
 // localStorage から前回の年を読み込み
 const savedBirthYear = localStorage.getItem('uchu_birthYear');
 if (savedBirthYear) {
@@ -2431,8 +2432,9 @@ function displayBirthdayCandidate(idx, age) {
 
 // 誕生日の星検索を実行（検証フックと本番処理の共通部分）
 function applyBirthdaySearch(year) {
-  if (!year || year < 1900 || year > 2026) {
-    const message = '1900〜2026年の西暦を入力してください';
+  const thisYear = new Date().getFullYear(); // 年をまたいでも正しく動くように毎回とる
+  if (!year || year < 1900 || year > thisYear) {
+    const message = `1900〜${thisYear}年の西暦を入力してください`;
     birthMsgDiv.textContent = message;
     birthMsgDiv.style.color = '#ff9999';
     birthNavDiv.innerHTML = '';
