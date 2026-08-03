@@ -2305,6 +2305,11 @@ function searchBirthday(inputYear) {
   if (inputYear > now) return { year: inputYear, age: 0, found: false, reason: 'future' };
   const age = now - inputYear;
 
+  // 0〜4歳の場合（いちばん近い星でも4.4光年）
+  if (age <= 4) {
+    return { year: inputYear, age, found: false, reason: 'young' };
+  }
+
   // 距離範囲を定義（年齢 ± 0.7光年）
   const minAge = Math.max(0, age - 0.7);
   const maxAge = age + 0.7;
@@ -2411,8 +2416,9 @@ function executeBirthdaySearch() {
 
   if (!result.found) {
     const reason = result.reason === 'future' ? '生まれていない年です' :
+                   result.reason === 'young' ? 'いちばん近い星の光でも、地球に届くまで4.4年かかります。あなたが生まれたときの光は、まだ旅の途中です' :
                    result.reason === 'none' ? 'この距離にはまだ見つかっている星がありません' :
-                   'いちばん近い星の光でも、地球に届くまで4.4年かかります。あなたが生まれたときの光は、まだ旅の途中です';
+                   'あなたが生まれたときの光は、まだ旅の途中です';
     birthMsgDiv.textContent = reason;
     birthMsgDiv.style.color = '#ffd9a0';
     birthNavDiv.innerHTML = '';
