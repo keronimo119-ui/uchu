@@ -1449,6 +1449,7 @@ let lastUserT = -20, seekingBH = false;
 let bhOn = false, bhSeeded = false; // BHモード（隠し機能・初期OFF）
 
 function enterGaze() { // 今見ている向きを引き継いで地球モードへ
+  launching = false; // 飛び立ちの途中で地球の夜空へ戻ったら、飛翔は取り消す（戻ったときに再開しない）
   if (mode === 'orbit') {
     const ph = cpos.clone().normalize();
     const cth = Math.atan2(ph.y, ph.x), cph = Math.acos(Math.max(-1, Math.min(1, ph.z)));
@@ -1457,7 +1458,7 @@ function enterGaze() { // 今見ている向きを引き継いで地球モード
   mode = 'gaze'; camera.up.set(0, 0, 1);
   $('bHome').classList.add('on');
 }
-function toOrbitRest() { cvel.multiplyScalar(0.2); diveT = 9; diving = false; viewTarget.copy(cpos).normalize().multiplyScalar(-1); } // 中心を見た静止から
+function toOrbitRest() { cvel.multiplyScalar(0.2); diveT = 9; diving = false; launching = false; viewTarget.copy(cpos).normalize().multiplyScalar(-1); } // 中心を見た静止から
 function exitGaze() { mode = 'orbit'; toOrbitRest(); $('bHome').classList.remove('on'); selectedCon = -1; skySetOn(false); }
 
 const pointers = new Map();
