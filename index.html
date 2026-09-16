@@ -1670,10 +1670,10 @@ function skyStep(dt) { // 毎コマ：センサー(or偽装)の向きを赤道�
 }
 
 $('bSky').onclick = () => {
+  if (mode === 'gaze' && skyOn) { skySetOn(false); lastUserT = tNow; wakeUI(); return; } // 追従中にもう一度押すと追従を切って手動に戻す（計画書§5-2の②。2026-09-16 検収指摘）
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission().catch(() => {}); // iOSの権限要求
   }
-  if (mode === 'gaze' && skyOn) { skySetOn(false); lastUserT = tNow; wakeUI(); return; } // 追従中にもう一度押すと追従を切って手動に戻す（計画書§5-2の②。2026-09-16 検収指摘）
   if (mode !== 'gaze') {
     if (mode === 'history') exitHistory();
     if (mode === 'tour') exitTour();
