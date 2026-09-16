@@ -1546,7 +1546,7 @@ canvas.addEventListener('pointerup', e => {
       } else tourCard();
     } else pickStar(tapInfo.x, tapInfo.y);
   }
-  else if (mode === 'orbit' && pointers.size === 0) {
+  else if (mode === 'orbit' && pointers.size === 0 && !launching) { // 飛び立ち(2.4秒)の途中で指を離してもフリック扱いにしない（風切り音の二重鳴り・別方向の舵の混入を防ぐ。2026-09-16 検収指摘）
     const mag = Math.hypot(flickAX, flickAY);
     if (mag > 30) { // フリック確定→少しホップした奥へ超スピード直進＋フリック方向の回頭軸をセット
       const right = _rt.crossVectors(viewTarget, camUp).normalize(); // 画面右（順序重要：逆だと左右が鏡写しになる）
@@ -1629,6 +1629,7 @@ function skyStart() { // センサーの購読を開始（1回だけ）。優先
 }
 function skySetOn(b) { skyOn = b; $('bSky').classList.toggle('on', b); }
 function skyFake(azDeg, altDeg) { // 検証用：センサーを偽装して向きを与える（4.2）
+  if (azDeg == null) { skyFakeDir = null; return; } // __U.skyFake(null) で偽装を解除して本物のセンサーに戻す
   const az = azDeg * Math.PI / 180, alt = altDeg * Math.PI / 180;
   const fe = Math.sin(az) * Math.cos(alt), fn = Math.cos(az) * Math.cos(alt), fu = Math.sin(alt);
   let ue = -fe * fu, un = -fn * fu, uu = 1 - fu * fu;
@@ -1672,6 +1673,7 @@ $('bSky').onclick = () => {
   if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
     DeviceOrientationEvent.requestPermission().catch(() => {}); // iOSの権限要求
   }
+  if (mode === 'gaze' && skyOn) { skySetOn(false); lastUserT = tNow; wakeUI(); return; } // 追従中にもう一度押すと追従を切って手動に戻す（計画書§5-2の②。2026-09-16 検収指摘）
   if (mode !== 'gaze') {
     if (mode === 'history') exitHistory();
     if (mode === 'tour') exitTour();
@@ -2743,7 +2745,8 @@ window.__U = { starUniforms, camera, hCam, tCam, postUni, sim: SIM, advanceSim: 
   wander: () => ({ wanderSpeed: +wanderSpeed.toFixed(2), roll: +roll.toFixed(3), speed: +cvel.length().toFixed(2), camR: +camR.toFixed(1), diving, cpos: cpos.toArray().map(v => +v.toFixed(1)) }),
   dbg: () => ({ seeking: seekingBH, camR: +camR.toFixed(1), speed: +cvel.length().toFixed(2), simT: +simT.toFixed(1), bhMass,
     nb: nb.length, born, gone, doomed: nb.filter(s => s.doom).length,
-    bh: bhWorld.toArray().map(v => +v.toFixed(1)), uOn: +postUni.uOn.value.toFixed(2) }),
+    bh: bhWorld.toArray().map(v => +v.toFixed(1)), uOn: +postUni.uOn.value.toFixed(2),
+    diving, diveT: +diveT.toFixed(2), launching }), // 飛翔中のフリック防止(2026-09-16)の検証用
   dist: () => { const ds = nb.map(s => s.p.distanceTo(bhWorld)).sort((a, b) => a - b); const q = f => +ds[Math.min(ds.length - 1, (ds.length * f) | 0)].toFixed(1); return { min: q(0), p25: q(0.25), med: q(0.5), p75: q(0.75), max: q(0.99) }; },
   bench: n => { // 動作確認用：1コマの描画にかかる時間(ms)を実測
     const t0 = performance.now();
