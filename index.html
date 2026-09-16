@@ -32,13 +32,13 @@
   #ui button .ic { font-size:19px; }
   #ui button.on { background:rgba(70,110,255,.4); border-color:rgba(180,200,255,.8); color:#fff; }
   /* 低い画面（横持ち・表示サイズ拡大のスマホ）: ボタン列(現在10個)が上下にはみ出したり右下の説明行(#pos)と重ならないよう、
-     列の高さを「画面の高さ − 下の余白」にして、1列に入らない分は左隣の列へ折り返す */
+     列の高さを「画面の高さ − 下の余白 − 下端のジェスチャーバー(safe-area)×2」にして、1列に入らない分は左隣の列へ折り返す */
   @media (max-height: 760px) {
     #ui { gap:6px; width:110px; flex-wrap:wrap-reverse; align-content:flex-start; justify-content:flex-start;
-      height:calc(100vh - 100px); height:calc(100dvh - 100px); }
+      height:calc(100vh - 100px); height:calc(100dvh - 100px - 2 * env(safe-area-inset-bottom)); }
   }
   @media (max-height: 520px) {
-    #ui { width:82px; height:calc(100vh - 64px); height:calc(100dvh - 64px); }
+    #ui { width:82px; height:calc(100vh - 64px); height:calc(100dvh - 64px - 2 * env(safe-area-inset-bottom)); }
     #ui button { width:38px; height:38px; font-size:9px; line-height:1.05; }
     #ui button .ic { font-size:13px; }
   }
