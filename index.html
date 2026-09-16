@@ -3146,7 +3146,7 @@ window.__U.skyOn = b => skySetOn(b);
 window.__U.setGeo = (lat, lon) => { geoLat = lat * Math.PI / 180; geoLon = lon * Math.PI / 180; };
 window.__U.lst = (date, lonDeg) => lstDeg(date, lonDeg);
 window.__U.launch = () => launchToSpace();
-window.__U.step = (ms = 16.7) => { cancelAnimationFrame(rafId); loop(lastT + ms); }; // 動作確認用：非表示タブ(rAF停止)でも1コマだけ手動で進める
+window.__U.step = (ms = 16.7) => { cancelAnimationFrame(rafId); const n = performance.now(); lastT = n - ms; loop(n); }; // 動作確認用：1コマだけ手動で進める（非表示タブでも可・表示中でも実時間と衝突しない）
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
