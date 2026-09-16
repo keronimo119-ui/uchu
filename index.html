@@ -1650,7 +1650,7 @@ function skyStep(dt) { // 毎コマ：センサー(or偽装)の向きを赤道�
     const r21 = cG * sA + cA * sB * sG, r22 = cA * cB, r23 = sA * sG - cA * cG * sB;
     const r31 = -cB * sG, r32 = sB;
     fe = -r13; fn = -r23; fu = -(cB * cG); // 背面が向く方向 = R×(0,0,-1)
-    const th = skyScreenAngle, ux = -Math.sin(th), uy = Math.cos(th);
+    const th = skyScreenAngle, ux = Math.sin(th), uy = Math.cos(th); // 横持ち(angle=90=端末を反時計回りに倒した状態)では画面の上＝端末の+x。2026-09-16 エミュレーターの回転ベクトルと照合し符号を修正
     ue = ux * r11 + uy * r12; un = ux * r21 + uy * r22; uu = ux * r31 + uy * r32; // 画面の上方向
   }
   const lst = lstDeg(new Date(), geoLon * 180 / Math.PI) * Math.PI / 180;
