@@ -59,6 +59,7 @@
   #card .s  { color:#93a5d6; font-size:12px; letter-spacing:0.1em; }
   #card .d  { color:#c3cfF2; color:#c3cff2; font-size:13px; margin-top:7px; }
   #card .y  { color:#ffd9a0; font-size:12.5px; margin-top:5px; letter-spacing:0.06em; }
+  #card .k  { color:#9fb6e6; font-size:12px; margin-top:6px; letter-spacing:0.04em; max-width:80vw; }
 
   /* 星座検索パネル */
   #panel { position:fixed; right:0; top:0; bottom:0; width:min(320px,78vw);
@@ -171,6 +172,7 @@
   <button id="bCons"><span class="ic">✦</span><span>星座</span></button>
   <button id="bFind"><span class="ic">🔍</span><span>さがす</span></button>
   <button id="bHome"><span class="ic">🌍</span><span>地球</span></button>
+  <button id="bSky"><span class="ic">📱</span><span>かざす</span></button>
   <button id="bHist"><span class="ic">⏳</span><span>歴史</span></button>
   <button id="bTour"><span class="ic">🪐</span><span>惑星</span></button>
   <button id="bBH"><span class="ic">●</span><span>BH</span></button>
@@ -1431,7 +1433,7 @@ let wRoll = 0, roll = 0, wanderSpeed = 1.7;  // 左右の軽い傾きと、漂�
 // “自分を中心に”フリック方向へゆっくり回頭し続け、中心をとらえたら旋回おわり。旋回中の再フリック=即再ダイブ。
 const ORB = { K: 0.006, rMin: 2, rMax: 260, drag: 0.78, driftDrag: 0.92, wallDrag: 0.3,
   flickV: 0.13, vMax: 65, hopTilt: 0.21, straightT: 0.8, rampT: 1.2, turn: 0.08,
-  turnSpd: 1.5, turnSlow: 0.35 }; // rMax拡大260pc:実在星団すばる136pc圏内へ対応
+  turnSpd: 1.5, turnSlow: 0.35, launchT: 2.4, launchV: 32 }; // rMax拡大260pc:実在星団すばる136pc圏内へ対応
 function setCPos(th, ph, r) { const s = Math.sin(ph); cpos.set(s * Math.cos(th), s * Math.sin(th), Math.cos(ph)).multiplyScalar(r); }
 function lookAlong() { // viewTarget(進行方向 or 中心)を見る。上ベクトルは連続に保ち反転を防ぐ
   camUp.addScaledVector(viewTarget, -camUp.dot(viewTarget));
@@ -1456,15 +1458,17 @@ function enterGaze() { // 今見ている向きを引き継いで地球モード
   $('bHome').classList.add('on');
 }
 function toOrbitRest() { cvel.multiplyScalar(0.2); diveT = 9; diving = false; viewTarget.copy(cpos).normalize().multiplyScalar(-1); } // 中心を見た静止から
-function exitGaze() { mode = 'orbit'; toOrbitRest(); $('bHome').classList.remove('on'); selectedCon = -1; }
+function exitGaze() { mode = 'orbit'; toOrbitRest(); $('bHome').classList.remove('on'); selectedCon = -1; skySetOn(false); }
 
 const pointers = new Map();
-let pinchD0 = 0, fov0 = 62, tapInfo = null;
+let pinchD0 = 0, fov0 = 62, tapInfo = null, lpTimer = 0;
 canvas.addEventListener('pointerdown', e => {
   canvas.setPointerCapture(e.pointerId);
+  clearTimeout(lpTimer);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 1) {
     tapInfo = { x: e.clientX, y: e.clientY, t: performance.now() }; flickAX = 0; flickAY = 0; tourVX = 0; tourVY = 0; tourMoveT = e.timeStamp;
+    if (mode === 'gaze') lpTimer = setTimeout(() => { if (pointers.size === 1 && tapInfo) { tapInfo = null; launchToSpace(); } }, 600);
   }
   if (pointers.size === 2) {
     const a = [...pointers.values()];
@@ -1492,6 +1496,7 @@ canvas.addEventListener('pointermove', e => {
       const dtm = Math.max(1, e.timeStamp - tourMoveT); tourMoveT = e.timeStamp;
       tourVX = tourVX * 0.6 + (dx / dtm) * 0.4; tourVY = tourVY * 0.6 + (dy / dtm) * 0.4;
     } else {
+      if (skyOn) skySetOn(false); // ドラッグ＝手動へ切り替え
       gazeLon -= dx * k; gazeLat += dy * k;
       gazeLat = Math.max(-1.5, Math.min(1.5, gazeLat));
       vgLon = vgLon * 0.5 - dx * k * 12; vgLat = vgLat * 0.5 + dy * k * 12;
@@ -1511,6 +1516,7 @@ canvas.addEventListener('pointermove', e => {
   lastUserT = tNow;
 });
 canvas.addEventListener('pointerup', e => {
+  clearTimeout(lpTimer);
   pointers.delete(e.pointerId);
   if (tapInfo && performance.now() - tapInfo.t < 450) {
     if (mode === 'tour') {
@@ -1555,7 +1561,129 @@ canvas.addEventListener('pointerup', e => {
   }
   tapInfo = null; lastUserT = tNow; flickAX = 0; flickAY = 0;
 });
-canvas.addEventListener('pointercancel', e => pointers.delete(e.pointerId));
+canvas.addEventListener('pointercancel', e => { clearTimeout(lpTimer); pointers.delete(e.pointerId); });
+
+// ═══════════════ かざす（センサー追従）と長押し飛翔 ═══════════════
+// スマホの向きで本物の夜空を映す「かざす」機能と、長押しで宇宙へ飛び立つ演出。
+let skyOn = false, skyReady = false, skyListening = false;
+let skyAlpha = 0, skyBeta = 0, skyGamma = 0, skyScreenAngle = 0;
+let skyFakeDir = null; // 検証用の偽装センサー方向（__U.skyFake で設定）
+let geoLat = 35.68 * Math.PI / 180, geoLon = 139.77 * Math.PI / 180; // 観測地（初期値=東京）
+try {
+  const g = JSON.parse(localStorage.getItem('uchu_geo'));
+  if (g && isFinite(g.lat) && isFinite(g.lon)) { geoLat = g.lat * Math.PI / 180; geoLon = g.lon * Math.PI / 180; }
+} catch (e) {}
+try {
+  navigator.geolocation && navigator.geolocation.getCurrentPosition(p => {
+    geoLat = p.coords.latitude * Math.PI / 180; geoLon = p.coords.longitude * Math.PI / 180;
+    try { localStorage.setItem('uchu_geo', JSON.stringify({ lat: p.coords.latitude, lon: p.coords.longitude })); } catch (e2) {}
+  }, () => {}, { timeout: 8000, maximumAge: 3600000 });
+} catch (e) {}
+
+let launching = false, launchT = 0;
+const launchDir = new THREE.Vector3();
+// 毎コマの計算で使い回すオブジェクト（作り直さない）
+const skyFwdW = new THREE.Vector3(), skyUpW = new THREE.Vector3(), skyRightW = new THREE.Vector3(), skyBackW = new THREE.Vector3();
+const skyMat4 = new THREE.Matrix4(), skyQt = new THREE.Quaternion();
+
+function lstDeg(date, lonDeg) { // 地方恒星時（度）
+  const JD = date.getTime() / 86400000 + 2440587.5;
+  const T = JD - 2451545.0;
+  let GMST = (280.46061837 + 360.98564736629 * T) % 360;
+  if (GMST < 0) GMST += 360;
+  let LST = (GMST + lonDeg) % 360;
+  if (LST < 0) LST += 360;
+  return LST;
+}
+function enuToEq(e, n, u, latRad, lstRad, out) { // 地上座標(東e,北n,天頂u) → 赤道座標
+  const sL = Math.sin(lstRad), cL = Math.cos(lstRad), sP = Math.sin(latRad), cP = Math.cos(latRad);
+  const Ex = -sL, Ey = cL, Ez = 0;
+  const Nx = -sP * cL, Ny = -sP * sL, Nz = cP;
+  const Ux = cP * cL, Uy = cP * sL, Uz = sP;
+  return out.set(e * Ex + n * Nx + u * Ux, e * Ey + n * Ny + u * Uy, e * Ez + n * Nz + u * Uz);
+}
+
+function onDeviceOrientation(e) {
+  if (e.alpha === null || e.beta === null || e.gamma === null) return; // 値が来ないうちは無視
+  let alpha = e.alpha;
+  if (!e.absolute && e.webkitCompassHeading !== undefined) alpha = 360 - e.webkitCompassHeading; // iOSの方位磁針で補正
+  skyAlpha = alpha * Math.PI / 180; skyBeta = e.beta * Math.PI / 180; skyGamma = e.gamma * Math.PI / 180;
+  skyScreenAngle = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
+  skyReady = true;
+}
+function skyStart() { // センサーの購読を開始（1回だけ）。優先: absolute、1.5秒来なければ通常版もあわせて購読
+  if (skyListening) return;
+  skyListening = true;
+  window.addEventListener('deviceorientationabsolute', onDeviceOrientation);
+  setTimeout(() => { if (!skyReady) window.addEventListener('deviceorientation', onDeviceOrientation); }, 1500);
+}
+function skySetOn(b) { skyOn = b; $('bSky').classList.toggle('on', b); }
+function skyFake(azDeg, altDeg) { // 検証用：センサーを偽装して向きを与える（4.2）
+  const az = azDeg * Math.PI / 180, alt = altDeg * Math.PI / 180;
+  const fe = Math.sin(az) * Math.cos(alt), fn = Math.cos(az) * Math.cos(alt), fu = Math.sin(alt);
+  let ue = -fe * fu, un = -fn * fu, uu = 1 - fu * fu;
+  const ulen = Math.sqrt(ue * ue + un * un + uu * uu) || 1;
+  skyFakeDir = { fe, fn, fu, ue: ue / ulen, un: un / ulen, uu: uu / ulen };
+  skyReady = true; skySetOn(true);
+}
+
+function skyStep(dt) { // 毎コマ：センサー(or偽装)の向きを赤道座標へ変換してカメラへ滑らかに反映
+  let fe, fn, fu, ue, un, uu;
+  if (skyFakeDir) {
+    fe = skyFakeDir.fe; fn = skyFakeDir.fn; fu = skyFakeDir.fu;
+    ue = skyFakeDir.ue; un = skyFakeDir.un; uu = skyFakeDir.uu;
+  } else {
+    const cA = Math.cos(skyAlpha), sA = Math.sin(skyAlpha);
+    const cB = Math.cos(skyBeta), sB = Math.sin(skyBeta);
+    const cG = Math.cos(skyGamma), sG = Math.sin(skyGamma);
+    const r11 = cA * cG - sA * sB * sG, r12 = -cB * sA, r13 = cA * sG + cG * sA * sB;
+    const r21 = cG * sA + cA * sB * sG, r22 = cA * cB, r23 = sA * sG - cA * cG * sB;
+    const r31 = -cB * sG, r32 = sB;
+    fe = -r13; fn = -r23; fu = -(cB * cG); // 背面が向く方向 = R×(0,0,-1)
+    const th = skyScreenAngle, ux = -Math.sin(th), uy = Math.cos(th);
+    ue = ux * r11 + uy * r12; un = ux * r21 + uy * r22; uu = ux * r31 + uy * r32; // 画面の上方向
+  }
+  const lst = lstDeg(new Date(), geoLon * 180 / Math.PI) * Math.PI / 180;
+  enuToEq(fe, fn, fu, geoLat, lst, skyFwdW).normalize();
+  enuToEq(ue, un, uu, geoLat, lst, skyUpW);
+  skyRightW.crossVectors(skyFwdW, skyUpW).normalize();
+  skyUpW.crossVectors(skyRightW, skyFwdW).normalize();
+  skyBackW.copy(skyFwdW).negate();
+  skyMat4.makeBasis(skyRightW, skyUpW, skyBackW);
+  skyQt.setFromRotationMatrix(skyMat4);
+  camera.quaternion.slerp(skyQt, 1 - Math.pow(0.001, dt));
+  skyFwdW.set(0, 0, -1).applyQuaternion(camera.quaternion); // 平滑後の前方をタップ判定用に書き戻す
+  gazeLon = Math.atan2(skyFwdW.y, skyFwdW.x);
+  gazeLat = Math.asin(Math.max(-1, Math.min(1, skyFwdW.z)));
+  vgLon = 0; vgLat = 0;
+}
+
+$('bSky').onclick = () => {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().catch(() => {}); // iOSの権限要求
+  }
+  if (mode !== 'gaze') {
+    if (mode === 'history') exitHistory();
+    if (mode === 'tour') exitTour();
+    enterGaze();
+  }
+  skySetOn(true);
+  skyStart();
+  lastUserT = tNow; wakeUI();
+};
+
+function launchToSpace() { // 長押し確定：いま向いている方向へ宇宙へ飛び立つ
+  if (mode !== 'gaze') return;
+  const d = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  camUp.set(0, 1, 0).applyQuaternion(camera.quaternion); // ロールを引き継ぎ、飛び立ちでカクッと回らないように
+  skySetOn(false);
+  card.classList.remove('show'); panelEl.classList.remove('open');
+  mode = 'orbit'; $('bHome').classList.remove('on'); selectedCon = -1;
+  launching = true; launchT = 0; launchDir.copy(d);
+  cpos.copy(d).multiplyScalar(0.02); cvel.set(0, 0, 0); viewTarget.copy(d); diving = false; lastUserT = tNow;
+  navigator.vibrate?.(40); SFX.whoosh(1);
+}
+
 addEventListener('wheel', e => {
   camera.fov = Math.max(26, Math.min(95, camera.fov + e.deltaY * 0.02));
   camera.updateProjectionMatrix(); updateSizeUniform(); lastUserT = tNow;
@@ -1937,8 +2065,14 @@ function pickStar(px, py) {
                      : `いま見えている光は 紀元前${1 - year}年 に星を発ちました`;
   }
   const c = bvToRGB(s[4]);
+  let conHtml = '';
+  if (s[5] >= 0) { // 星座に属する星なら、星座の一言紹介＋形のハイライトも添える
+    highlightCon(s[5], false);
+    const abbr = D.cons[s[5]];
+    conHtml = `<div class="k">${conJp} ─ ${CON_INFO[abbr] || ''}</div>`;
+  }
   card.innerHTML = `<div class="n" style="color:rgb(${(c[0]*255)|0},${(c[1]*255)|0},${(c[2]*255)|0})">${name}</div>
-    <div class="s">${sub}</div><div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
+    <div class="s">${sub}</div>${conHtml}<div class="d">${dTxt}</div><div class="y">${yTxt}</div>`;
   SFX.chime();
   pickFlash(new THREE.Vector3(pos[best*3], pos[best*3+1], pos[best*3+2]), c, false, mag[best]);
   card.classList.add('show');
@@ -2248,9 +2382,9 @@ $('bTour').onclick = () => { // 太陽系めぐり
 
 // 星座図鑑：検索 → 地球の夜空モードでその星座へ・ハイライト・紹介カード
 let hlTimer = 0;
-function selectCon(ci) {
+function highlightCon(ci, withAll) { // 星座の形(hlLines)を光らせる。withAll=trueなら「星座」ボタンの全体表示も連動
   selectedCon = ci;  // 時刻変更時にハイライト線も更新するため記録
-  consLines.visible = true; $('bCons').classList.add('on');
+  if (withAll) { consLines.visible = true; $('bCons').classList.add('on'); }
   const segs = conSegs[ci];
   const arr = new Float32Array(segs.length * 3);
   const scale = timeYr / 1e6;
@@ -2263,12 +2397,16 @@ function selectCon(ci) {
   }
   hlGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
   hlLines.visible = true;
-  consLines.material.opacity = 0.10;
+  if (withAll) consLines.material.opacity = 0.10;
   clearTimeout(hlTimer);
-  hlTimer = setTimeout(() => { hlLines.visible = false; consLines.material.opacity = 0.28; }, 30000);
+  hlTimer = setTimeout(() => { hlLines.visible = false; if (withAll) consLines.material.opacity = 0.28; }, 30000);
+}
+function selectCon(ci) {
+  highlightCon(ci, true);
   if (mode === 'history') exitHistory(); // どのモードから検索しても辻褄が合うように必ず抜けてから
   if (mode === 'tour') exitTour();
   enterGaze();
+  skySetOn(false);
   seekCon = ci; seekingBH = false; lastUserT = -20;
   const abbr = D.cons[ci];
   const bright = conBrightest(ci);
@@ -2706,6 +2844,19 @@ function loop(now) {
   const idle = Math.min(1, Math.max(0, (t - lastUserT - 8) / 8));
   if (mode === 'orbit') {
     // ── 宇宙遊泳：フリックで見ている奥へ突き進み（進行方向を向く＝前進感）、限界で中心へ向き直す ──
+    if (launching) {
+      // ── 長押しで飛び立った直後：静止から三乗カーブで加速し、既存のダイブへ引き渡す ──
+      launchT += dt; const p = Math.min(1, launchT / ORB.launchT);
+      cpos.copy(launchDir).multiplyScalar(0.02 + (ORB.rMin + 0.5 - 0.02) * p * p * p);
+      viewTarget.copy(launchDir);
+      if (p >= 1) { // 既存のダイブ法則へ引き渡す（法則側は無変更）
+        launching = false;
+        cvel.copy(launchDir).multiplyScalar(ORB.launchV);
+        steerAxis.crossVectors(launchDir, camUp).normalize();
+        diveT = 0; diving = true;
+      }
+      camR = cpos.length(); lookAlong();
+    } else {
     if (seekingBH && bhOn) {
       _rt.copy(bhWorld).normalize().multiplyScalar(-14); // BHの反対側・半径14へ寄って中心越しにBHを見る
       cpos.lerp(_rt, Math.min(1, dt * 1.5));
@@ -2772,6 +2923,7 @@ function loop(now) {
     camR = cpos.length();
     lookAlong();
     if (roll) camera.rotateZ(roll);
+    }
   } else if (mode === 'history') {
     // ── 歴史モード：地球の傍らで46億年を眺める ──
     updateHistory(dt);
@@ -2814,12 +2966,16 @@ function loop(now) {
       gazeLat += vgLat * dt;
       gazeLat = Math.max(-1.5, Math.min(1.5, gazeLat));
     }
-    camera.up.set(0, 0, 1);
     camera.position.copy(cpos).setLength(camR);
-    camera.lookAt(
-      camera.position.x + Math.cos(gazeLat) * Math.cos(gazeLon),
-      camera.position.y + Math.cos(gazeLat) * Math.sin(gazeLon),
-      camera.position.z + Math.sin(gazeLat));
+    if (skyOn && skyReady) {
+      skyStep(dt); // かざす：センサーの向きをそのまま空に反映
+    } else {
+      camera.up.set(0, 0, 1);
+      camera.lookAt(
+        camera.position.x + Math.cos(gazeLat) * Math.cos(gazeLon),
+        camera.position.y + Math.cos(gazeLat) * Math.sin(gazeLon),
+        camera.position.z + Math.sin(gazeLat));
+    }
   }
   updateApparentMags();
 
@@ -2890,6 +3046,7 @@ function loop(now) {
 }
 bhWorld.set(26, 0, 0); // BHの初期位置（モードONにした瞬間から銀河が育ち始める）
 wakeUI();
+enterGaze(); skySetOn(true); skyStart(); // 起動直後から地球の夜空＋かざす追従で始める
 requestAnimationFrame(loop);
 
 // 起動1.5秒後に「今夜の見どころ」カード表示
@@ -2903,7 +3060,7 @@ setTimeout(() => {
   card.innerHTML = `<div class="n" style="color:#d0d0e0">今夜の見どころ</div>
     <div class="s">月齢 ${info.age} ─ ${info.phaseName}</div>
     <div class="d">${info.plan_d}</div>
-    <div class="y">明るい点をタップすると、その惑星のいまがわかります</div>`;
+    <div class="y">星をタップ＝その星と星座の話 ／ 画面を長押し＝その方向へ宇宙に飛び立つ</div>`;
   card.classList.add('show');
   clearTimeout(cardTimer);
   cardTimer = setTimeout(() => card.classList.remove('show'), 12000);
@@ -2970,6 +3127,20 @@ window.__U.planetPick = (name) => {
     showPlanetCard(planets[idx], planets);
   }
 };
+
+// かざす（センサー追従）＋長押し飛翔の検証フック
+window.__U.skyState = () => ({
+  on: skyOn, ready: skyReady,
+  lat: +geoLat.toFixed(3), lon: +geoLon.toFixed(3),
+  lstDeg: +lstDeg(new Date(), geoLon * 180 / Math.PI).toFixed(3),
+  gazeLon: +gazeLon.toFixed(3), gazeLat: +gazeLat.toFixed(3),
+  launching, launchT: +launchT.toFixed(3)
+});
+window.__U.skyFake = (azDeg, altDeg) => skyFake(azDeg, altDeg);
+window.__U.skyOn = b => skySetOn(b);
+window.__U.setGeo = (lat, lon) => { geoLat = lat * Math.PI / 180; geoLon = lon * Math.PI / 180; };
+window.__U.lst = (date, lonDeg) => lstDeg(date, lonDeg);
+window.__U.launch = () => launchToSpace();
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
