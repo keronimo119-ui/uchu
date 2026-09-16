@@ -1496,10 +1496,13 @@ canvas.addEventListener('pointermove', e => {
       const dtm = Math.max(1, e.timeStamp - tourMoveT); tourMoveT = e.timeStamp;
       tourVX = tourVX * 0.6 + (dx / dtm) * 0.4; tourVY = tourVY * 0.6 + (dy / dtm) * 0.4;
     } else {
-      if (skyOn) skySetOn(false); // ドラッグ＝手動へ切り替え
+      if (skyOn && tapInfo && Math.hypot(e.clientX - tapInfo.x, e.clientY - tapInfo.y) <= 9) { /* タップ内の指ぶれ: 追従は切らない */ }
+      else {
+      if (skyOn) skySetOn(false); // 9px超のドラッグ＝手動へ切り替え
       gazeLon -= dx * k; gazeLat += dy * k;
       gazeLat = Math.max(-1.5, Math.min(1.5, gazeLat));
       vgLon = vgLon * 0.5 - dx * k * 12; vgLat = vgLat * 0.5 + dy * k * 12;
+      }
     }
     seekCon = -1;
     if (tapInfo && Math.hypot(e.clientX - tapInfo.x, e.clientY - tapInfo.y) > 9) tapInfo = null;
@@ -1565,7 +1568,7 @@ canvas.addEventListener('pointercancel', e => { clearTimeout(lpTimer); pointers.
 
 // ═══════════════ かざす（センサー追従）と長押し飛翔 ═══════════════
 // スマホの向きで本物の夜空を映す「かざす」機能と、長押しで宇宙へ飛び立つ演出。
-let skyOn = false, skyReady = false, skyListening = false;
+let skyOn = false, skyReady = false, skyListening = false, skyAbsSeen = false;
 let skyAlpha = 0, skyBeta = 0, skyGamma = 0, skyScreenAngle = 0;
 let skyFakeDir = null; // 検証用の偽装センサー方向（__U.skyFake で設定）
 let geoLat = 35.68 * Math.PI / 180, geoLon = 139.77 * Math.PI / 180; // 観測地（初期値=東京）
@@ -1606,6 +1609,7 @@ function enuToEq(e, n, u, latRad, lstRad, out) { // 地上座標(東e,北n,天�
 function onDeviceOrientation(e) {
   if (e.alpha === null || e.beta === null || e.gamma === null) return; // 値が来ないうちは無視
   let alpha = e.alpha;
+  if (e.absolute) skyAbsSeen = true; else if (skyAbsSeen) return; // 絶対方位が来ているときは相対版を無視（二重購読の揺れ防止）
   if (!e.absolute && e.webkitCompassHeading !== undefined) alpha = 360 - e.webkitCompassHeading; // iOSの方位磁針で補正
   skyAlpha = alpha * Math.PI / 180; skyBeta = e.beta * Math.PI / 180; skyGamma = e.gamma * Math.PI / 180;
   skyScreenAngle = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
@@ -2399,7 +2403,7 @@ function highlightCon(ci, withAll) { // 星座の形(hlLines)を光らせる。w
   hlLines.visible = true;
   if (withAll) consLines.material.opacity = 0.10;
   clearTimeout(hlTimer);
-  hlTimer = setTimeout(() => { hlLines.visible = false; if (withAll) consLines.material.opacity = 0.28; }, 30000);
+  hlTimer = setTimeout(() => { hlLines.visible = false; consLines.material.opacity = 0.28; }, 30000);
 }
 function selectCon(ci) {
   highlightCon(ci, true);
@@ -2829,8 +2833,9 @@ function advanceSim(sec) {
   }
 }
 
+let rafId = 0; // 動作確認用フック __U.step が「次のコマ」を取り消してから手動で1コマ進めるための予約番号
 function loop(now) {
-  requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
   const dt = Math.min((now - lastT) / 1000, 0.05);
   lastT = now; tNow = now / 1000;
   const t = tNow;
@@ -3141,6 +3146,7 @@ window.__U.skyOn = b => skySetOn(b);
 window.__U.setGeo = (lat, lon) => { geoLat = lat * Math.PI / 180; geoLon = lon * Math.PI / 180; };
 window.__U.lst = (date, lonDeg) => lstDeg(date, lonDeg);
 window.__U.launch = () => launchToSpace();
+window.__U.step = (ms = 16.7) => { cancelAnimationFrame(rafId); loop(lastT + ms); }; // 動作確認用：非表示タブ(rAF停止)でも1コマだけ手動で進める
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
